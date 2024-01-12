@@ -1,15 +1,13 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 import numpy as np
-from numpy import ndarray
-from PaperworkManagement.Bridges import *
+from PaperworkManagement.papman import *
 from PredictorsManagement.Predictors import *
 from Utilities.FinUtils import *
 from tinkoff.invest import CandleInterval
 from StrategiesManagement.DecidingModules import *
 from StrategiesManagement.QuantityControllers import *
 import math as m
-import random as rd
 
 @dataclass
 class Squad:
@@ -17,17 +15,6 @@ class Squad:
     Predictors: list[AIPredictor]
     TrendViewers: list[AITrendviewer] | None = None
     RiskManagers: list[Predictor] | None = None
-
-@dataclass
-class Decision:
-    '''dataclass for trading decisions.
-      :direction: True - buy, False - sell
-      :amount: how many lots to buy/sell'''
-    direction: bool
-    amount: int
-    # These ones are really important for real trading, not for backtesting:
-    type: int=0
-    price: float=-1
 
 class Provizor:
     '''a class which manages all of the predictions of an AIPredictors and risk managers squad'''
@@ -105,11 +92,10 @@ class StrategyParams:
         if self.Backtest:
             self.Intervals = f'tinkoff CandleInterval code: {str(*self.Intervals)}'
 
-
 class AutomatedStrategy:
     '''a class for all strategies(its modular)'''
 
-    def __init__(self, params: StrategyParams, disable_default_risk_management: bool=False, strategy_id: str='', bridge: PaperBridge | None=None):
+    def __init__(self, params: StrategyParams, disable_default_risk_management: bool=False, strategy_id: str='', bridge: Bridge | None=None):
         self.params = params
         self.disable_default_risk_management = disable_default_risk_management
         self.strategy_id = strategy_id

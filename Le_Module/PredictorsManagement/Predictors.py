@@ -11,7 +11,23 @@ class Predictor(ABC):
     @abstractmethod
     def predict(self, databit):
         pass
+           
+@dataclass
+class PredictorParams:
+    '''dataclass for storing all upcoming AI predictor parameters. 
+     :structure: is a list of all layers of a future sequential predictor'''
+    loss: keras.losses.Loss
+    optimizer: keras.optimizers.Optimizer | str
+    structure: list[keras.layers.Layer]
+    scope: int=1
+    input_len: int=5   
+    output_len: int=1 
 
+    epochs: int=300
+    training_verbose: bool=False
+    callbacks: list | None = None
+    predictable: str = 'close'
+    metrics: list[str] | None = None
 
 class AIPredictor(Predictor):
     def __init__(self, model: keras.Sequential, predictable):

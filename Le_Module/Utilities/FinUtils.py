@@ -275,3 +275,14 @@ def get_data_tinkoff(TOKEN : str, FIGI : str, period : int=12, interval : Candle
     dt = Candles(Open=open, Close=close, High=high, Low=low, Volume=volume)
 
     return dt
+
+@dataclass
+class Decision:
+    '''dataclass for trading decisions.
+      :direction: True - buy, False - sell
+      :amount: how many lots to buy/sell'''
+    direction: bool
+    amount: int
+    # These ones are really important for real trading, not for backtesting:
+    type: int=0
+    price: float=-1

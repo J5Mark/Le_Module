@@ -2,7 +2,6 @@ import numpy as np
 import keras
 from abc import abstractmethod, ABC
 from Utilities.FinUtils import Candles
-from Utilities.DTypes import PredictorParams
 from Utilities import FinUtils
 from PredictorsManagement.Predictors import *
 

@@ -17,6 +17,5 @@ StrategiesManagement/__init__.py
 StrategiesManagement/sm.py
 StrategiesManagement/old/__init__.py
 StrategiesManagement/old/strategy_class.py
-Utilities/DTypes.py
 Utilities/FinUtils.py
 Utilities/__init__.py
