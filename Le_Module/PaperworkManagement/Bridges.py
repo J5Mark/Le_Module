@@ -5,7 +5,7 @@ import tinkoff.invest.services as ti_serv
 from tinkoff.invest import InvestError
 import uuid
 from StrategiesManagement.sm import *
-from papman import *
+from PaperworkManagement.papman import *
 
 class PaperBridge(Bridge):
     '''A bridge that executes strategys decisions with tinkoff invest sdk'''
@@ -14,18 +14,19 @@ class PaperBridge(Bridge):
         self.intervals = []
         for each in candle_instruments:
             figis.append(each.figi)
-            self.intervals.append(each.instrument)
+            self.intervals.append(each.interval)
         if len(set(figis)) != 1:
             print('WARNING: only the first figi will be interacted with') 
-        self.figi = figis[0]
         self.token = token
         self.acc_id = acc_id
-        with Client(TOKEN = self.token) as client:
-            bridge_stream: ti_serv.MarketDataStreamManager = client.create_market_data_stream()
-            bridge_stream.candles.waiting_close().subscribe(candle_instruments)
-        return self, bridge_stream
+        self.bridge_streams = []
+        with Client(token = self.token) as client:
+            for each in candle_instruments:
+                bridge_stream: ti_serv.MarketDataStreamManager = client.create_market_data_stream()
+                bridge_stream.candles.waiting_close().subscribe(candle_instruments)
+                self.bridge_streams.append(bridge_stream)
     
-    def post_order(self, decision: Decision):  
+    def post_order(self, decision: Decision, figi: str):  
         try:
             with Client(token=self.token) as client:
                 if decision.direction == True:
@@ -40,7 +41,7 @@ class PaperBridge(Bridge):
                 ord_id = str(uuid.uuid4())
                     
                 order = client.orders.post_order(
-                    figi=self.figi,
+                    figi=figi,
                     quantity=decision.amount,
                     price=Quotation(units=m.floor(orderprice), nano=(10**9)*orderprice%1),
                     direction=direction,
@@ -53,7 +54,8 @@ class PaperBridge(Bridge):
                         'price': orderprice, 
                         'direction': decision.direction, 
                         'order id': ord_id, 
-                        'order type': ordertype}
+                        'order type': ordertype,
+                        'figi': figi}
         except InvestError:
             print(f'for some reason could not post order {ord_id}, full decision: {decision}')
         

@@ -129,7 +129,7 @@ class AutomatedStrategy:
         else:
             return False
 
-    def _real_order(self, signal): #not really well implemented yet
+    def _real_order(self, signal):
         self.bridge.post_order(signal)
 
     def _test_order(self, signal: Decision, price: float | None = None):  

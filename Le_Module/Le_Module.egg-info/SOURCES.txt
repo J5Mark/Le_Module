@@ -5,6 +5,7 @@ Le_Module.egg-info/dependency_links.txt
 Le_Module.egg-info/top_level.txt
 PaperworkManagement/Bridges.py
 PaperworkManagement/__init__.py
+PaperworkManagement/papman.py
 PredictorsManagement/Factories.py
 PredictorsManagement/Predictors.py
 PredictorsManagement/__init__.py
