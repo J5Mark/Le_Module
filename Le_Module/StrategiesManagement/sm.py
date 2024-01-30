@@ -173,7 +173,6 @@ class AutomatedStrategy:
                 market_ord = self._real_order(signal.market)
                 stoploss_ord = self._real_order(signal.stop_loss)
                 #takeprofit_ord = self._real_order(signal.take_profit)
-                
 
             else:
                 self._test_order(Decision(signal.market.direction, actual_market_amount), databits.for_predictors.Close.values[-1])

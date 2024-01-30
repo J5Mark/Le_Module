@@ -97,7 +97,7 @@ def get_training_data(indicators: Candles, len_of_sample : int = 5, len_of_label
                 pic = np.reshape(ins.values, (len_of_sample, asdf.shape[1]))
                 training.append(pic)
                 labels.append(y)
-        elif isinstance(predictable, market_condition):  ###################
+        elif isinstance(predictable, market_condition): 
             for i in range(len(asdf)-len_of_sample-1):
                 ins = asdf[:][i:i+len_of_sample]
                 pic = np.reshape(ins.values, (len_of_sample, asdf.shape[1]))
@@ -141,27 +141,3 @@ def get_data_tinkoff(TOKEN : str, FIGI : str, period : int=12, interval : Candle
     dt = Candles(Open=open, Close=close, High=high, Low=low, Volume=volume)
 
     return dt
-
-@dataclass
-class Decision:
-    '''dataclass for trading decisions.
-      :direction: True - buy, False - sell
-      :amount: how many lots to buy/sell, -1 for all in access
-      :type: type of the order, 0 - market, 1 - stoploss, 2 - takeprofit'''
-    direction: bool
-    amount: int
-    # These ones are really important for real trading, not for backtesting:
-    type: int=0
-    price: float=-1
-    
-@dataclass
-class DecisionsBatch:
-    market: Decision | None=None
-    stop_loss: Decision | None=None
-    take_profit: Decision | None=None    
-    
-@dataclass
-class DatabitsBatch:
-    for_predictors: Candles | None=None
-    for_trendviewers: Candles | None=None
-    for_risk_managers: Candles | None=None

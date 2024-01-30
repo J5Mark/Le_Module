@@ -72,7 +72,7 @@ class Indicator:
     span: list[int] | None = None
 
     def __getitem__(self, key):
-        return Indicator(name=self.name, values=self.values[key] if isinstance(self.values[key], list) else [self.values[key]], span=self.span)
+        return Indicator(name=self.name, values=self.values[key] if isinstance(self.values[key], list) or isinstance(self.values[key], np.ndarray) else np.array([self.values[key]]), span=self.span)
     
     def __eq__(self, __value: Indicator) -> bool:
         if isinstance(__value, Indicator):
@@ -220,3 +220,27 @@ class Candles:
                         df[t.name + ' ' + int(ma)*str(t.span[0])] = t.values[-min(lens):]
             
         return df
+    
+@dataclass
+class Decision:
+    '''dataclass for trading decisions.
+      :direction: True - buy, False - sell
+      :amount: how many lots to buy/sell, -1 for all in access
+      :type: type of the order, 0 - market, 1 - stoploss, 2 - takeprofit'''
+    direction: bool
+    amount: int
+    # These ones are really important for real trading, not for backtesting:
+    type: int=0
+    price: float=-1
+    
+@dataclass
+class DecisionsBatch:
+    market: Decision | None=None
+    stop_loss: Decision | None=None
+    take_profit: Decision | None=None    
+    
+@dataclass
+class DatabitsBatch:
+    for_predictors: Candles | None=None
+    for_trendviewers: Candles | None=None
+    for_risk_managers: Candles | None=None

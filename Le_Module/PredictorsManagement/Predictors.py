@@ -123,7 +123,7 @@ class AIValuesPredictor(Predictor):
             med_bias_adjusted=(biased+biased*self.median_bias[0], biased+biased*self.median_bias[1]))
             
     def predict(self, databit: np.ndarray) -> PredictorResponse:
-        PredictorResponse(pred=self.predict_value(databit))
+        return PredictorResponse(pred=self.predict_value(databit))
 
     @abstractmethod
     def examine_bias(self, dataset: tuple):
@@ -154,9 +154,8 @@ class AIValuesPredictor(Predictor):
 
 class AITrendviewer(AIValuesPredictor):
     '''A type of predictor that only predicts a single value, a single candle in the future. It can be used for risk management or allowing trade for a certain period of time(greater than the operating dataframe)'''    
-    def __init__(self, c_model: keras.Sequential | None=None, v_model: keras.Sequential | None=None, predictable_value: str | None=None, predicted_condition=None, input_len: int=5, input_width: int=11):
-        assert c_model == None and predicted_condition == None
-        super.__init__(self, c_model, v_model, predictable_value, predicted_condition, input_len, input_width)
+    def __init__(self, v_model: keras.Sequential, predictable_value: str='close', input_len: int=5, input_width: int=11):
+        super().__init__(v_model, predictable_value, input_len, input_width)
         
     def examine_bias(self, training_sets: list[tuple]):
         avg_positives, avg_negatives, med_positives, med_negatives = [], [], [], []
