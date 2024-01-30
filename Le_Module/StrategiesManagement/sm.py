@@ -7,14 +7,21 @@ from Utilities.FinUtils import *
 from tinkoff.invest import CandleInterval
 from StrategiesManagement.DecidingModules import *
 from StrategiesManagement.QuantityControllers import *
+from StrategiesManagement.RiskManagers import *
 import math as m
 
 @dataclass
 class Squad:
     '''a collection of AIs and algorythms the strategy may be using for assessing the overall trend, predicting upcoming prices and managing risks'''
-    Predictors: list[AIPredictor]
+    Predictors: list[Predictor]
     TrendViewers: list[AITrendviewer] | None = None
-    RiskManagers: list[Predictor] | None = None
+    RiskManagers: list[RiskManager] | None = None
+    
+@dataclass
+class CombinedRMResponses:
+    '''dataclass used for organizing what the provizor gets from the squad's risk managers'''
+    stoploss_prices: list[float | None]
+    risks: list[bool | None]
 
 class Provizor:
     '''a class which manages all of the predictions of an AIPredictors and risk managers squad'''
@@ -40,14 +47,16 @@ class Provizor:
 
         return predictions
 
-    def see_risks(self, databit: Candles, avg_buy_price: float | None=None) -> list[bool]:
+    def see_risks(self, databit: Candles, avg_buy_price: float | None=None) -> CombinedRMResponses:
+        stoploss_list = []
         if self.squad.RiskManagers != None:
-            risky_list = []
+            risky_list_bool = []
             for rm in self.squad.RiskManagers:
-                risky_list.append(rm.predict(databit, avg_buy_price))
-
-            return risky_list
-        else: return None 
+                assessment: RMResponse = rm.predict(databit, avg_buy_price)
+                risky_list_bool.append(assessment.risk)
+                stoploss_list.append(assessment.stoploss_price)
+            return CombinedRMResponses(stoploss_prices=stoploss_list, risks=risky_list_bool)
+        else: return CombinedRMResponses(stoploss_prices=None, risks=[False])
 
 class SignalGenerator(ABC):
     '''the core logic module behind the strategy.
@@ -57,57 +66,66 @@ class SignalGenerator(ABC):
         self.Decider = Decider
         self.Quantifier = Quantifier
     
-    def decide(self, databit: Candles, avg_buy_price: float | None=None) -> Decision:
+    def call(self, databits: DatabitsBatch, avg_buy_price: float | None=None) -> DecisionsBatch:
+        '''calls every member of the models squad for their predictions'''
         if self.Wizard != None:
-            trend = self.Wizard.see_trend(databit)
-            predictions = self.Wizard.predict(databit)
-            risks = self.Wizard.see_risks(databit, avg_buy_price)
+            trend = self.Wizard.see_trend(databits.for_trendviewers) if databits.for_trendviewers != None else None
+            predictions = self.Wizard.predict(databits.for_predictors) if databits.for_predictors != None else None 
+            risks = self.Wizard.see_risks(databits.for_risk_managers, avg_buy_price) if databits.for_risk_managers != None else None
 
-            direction = self.Decider.decide(databit, trend, predictions, risks)
-            quantity = self.Quantifier.decide_quantity(databit, direction, trend, predictions, risks)
+            market_direction = self.Decider.decide(databits.for_predictors, trend, predictions, risks.risks)
+            market_quantity = self.Quantifier.decide_quantity(databits.for_predictors, market_direction, trend, predictions, risks.risks)
+            
+            stoploss_price = np.mean(risks.stoploss_prices) if risks.stoploss_prices else None
+            #takeprofit_price = None #takeprofits are not quite implemented yet
         else:
-            direction = self.Decider.decide(databit)
-            quantity = self.Quantifier.decide_quantity(databit)
+            market_direction = self.Decider.decide(databits.for_predictors)
+            market_quantity = self.Quantifier.decide_quantity(databits.for_predictors, market_direction)
 
-        return Decision(direction=direction, amount=quantity)
+        batch = DecisionsBatch()
+        batch.market = Decision(direction=market_direction, amount=market_quantity, type=0, price=-1)
+        batch.stop_loss = Decision(direction=False, amount=-1, type=1, price=stoploss_price)
+        batch.take_profit = None#Decision(direction=False, amount=-1, type=2, price=takeprofit_price)
+        
+        return batch
 
 @dataclass
 class StrategyParams:
     '''a form of many algorythms the strategy will be using.
       :Squad: is a collection of different purposed models for predicting stock prices, trends and assessing risks.
       :SignalGenerator: is a module containing all of the logic behind the strategy.'''
-    
-    def __init__(self, SignalGenerator: SignalGenerator, 
-                 TOKEN: str, 
-                 FIGI: str, 
-                 Budget: Money | float = 0.0,
-                 Backtest: bool = True, 
-                 Intervals: list[CandleInterval] = [CandleInterval.CANDLE_INTERVAL_5_MIN]):
-        self.SignalGenerator = SignalGenerator
-        self.TOKEN = TOKEN
-        self.FIGI = FIGI
-        self.Budget = Budget
-        self.Backtest = Backtest
-        self.Intervals = Intervals
-        if self.Backtest:
-            self.Intervals = f'tinkoff CandleInterval code: {str(*self.Intervals)}'
+    SignalGenerator: SignalGenerator 
+    TOKEN: str 
+    FIGI: str 
+    Budget: Money | float = 0.0
+    Backtest: bool = True 
+    Intervals: tuple(CandleInterval) = (CandleInterval.CANDLE_INTERVAL_3_MIN)
 
 class AutomatedStrategy:
     '''a class for all strategies(its modular)'''
 
-    def __init__(self, params: StrategyParams, disable_default_risk_management: bool=False, strategy_id: str='', bridge: Bridge | None=None):
+    def __init__(self, params: StrategyParams,  
+                 lot_size: int=1,
+                 strategy_id: str='', 
+                 bridge: Bridge | None=None, 
+                 possession: int=0,
+                 mean_buy_price: float=0,
+                 comission: float=0.05):
         self.params = params
-        self.disable_default_risk_management = disable_default_risk_management
         self.strategy_id = strategy_id
         self.bridge = bridge 
-        self.lot_size = 1
-        self.possession = 0
-        self.possession_buy_prices = 0
+        self.lot_size = lot_size
+        self.possession = possession
+        self.comission = comission/100
+        self.mean_buy_price = mean_buy_price
+        self.b_prices_list = [mean_buy_price]
         self.history = {'Budget': [self.params.Budget],
                         'Signals': [None],
-                        'Possession': [0],
-                        'Buy prices': [None],
-                        'Sell prices': [None],
+                        'Possession': [self.possession],
+                        'Buy prices': [mean_buy_price],
+                        'Market sell prices': [None],
+                        'Stoploss sell prices': [None],
+                        'Takeprofit sell prices': [None],
                         'PnL': [self.params.Budget]}
     
     @property
@@ -116,21 +134,11 @@ class AutomatedStrategy:
         return self.params
         
     def _get_signal(self, databit: Candles):
-        if self.possession != 0: avg_buy_price = self.possession_buy_prices/self.possession
-        else: avg_buy_price = 0
-        return self.params.SignalGenerator.decide(databit, avg_buy_price)
-
-    def default_RM(self, candles: Candles) -> bool:
-        '''outputs True if action needed'''
-        if not self.disable_default_risk_management:
-            atr = candles.ATR.values[-1]
-            price = candles.Close.values[-1]
-            return self.possession_buy_prices/self.possession < price - atr
-        else:
-            return False
+        avg_buy_price = round(np.mean(self.b_prices_list), 3) if len(self.b_prices_list) != 0 else 0
+        return self.params.SignalGenerator.call(databit, avg_buy_price)
 
     def _real_order(self, signal):
-        self.bridge.post_order(signal)
+        return self.bridge.post_order(signal)
 
     def _test_order(self, signal: Decision, price: float | None = None):  
         if self.bridge != None:
@@ -138,65 +146,65 @@ class AutomatedStrategy:
         else:
             price = price
         if signal.direction: #buy
-            self.params.Budget -= 1.0005 * price * self.lot_size * signal.amount
+            self.params.Budget -= (1+self.comission) * price * self.lot_size * signal.amount
             self.possession += self.lot_size * signal.amount
-            self.possession_buy_prices += price * signal.amount
+            self.b_prices_list += [price] * self.lot_size * signal.amount
 
         else: #sell
-            self.params.Budget += 0.9995 * price * self.lot_size * signal.amount
+            self.params.Budget += (1-self.comission) * price * self.lot_size * signal.amount
             self.possession -= self.lot_size * signal.amount
             if self.possession != 0:
-                self.possession_buy_prices -= signal.amount * self.possession_buy_prices/(self.possession)
+                self.b_prices_list = [np.mean(self.b_prices_list[self.lot_size*signal.amount:])] * self.possession
+            else:
+                self.b_prices_list = []
 
-    def decide(self, databit: Candles):
+    def decide(self, databits: DatabitsBatch, transparency: bool=False):
         
-        if self.params.Budget >= databit.Close.values[-1] * self.lot_size:
-            signal = self._get_signal(databit)
+        if self.params.Budget >= databits.for_predictors.Close.values[-1] * self.lot_size:
+            signal = self._get_signal(databits)
             
-            if signal.amount == -1:
-                actual_amount = self.possession/self.lot_size
+            if signal.market.amount == -1:
+                actual_market_amount = self.possession//self.lot_size
             else:
-                actual_amount = signal.amount if self.params.Budget >= signal.amount * self.lot_size * databit.Close.values[-1] else m.floor(self.params.Budget / (signal.amount * self.lot_size * databit.Close.values[-1]))
-
-            if not self.disable_default_risk_management and databit.ATR == None:
-                    cndls = get_data_tinkoff(self.params.TOKEN, self.params.FIGI, period=1, interval=self.params.Interval)
-                    cndls.ATR = calcATR(cndls)
-            else:
-                cndls = databit
-
+                actual_market_amount = signal.market.amount if self.params.Budget >= signal.market.amount * self.lot_size * databits.for_predictors.Close.values[-1] else m.floor(self.params.Budget / (signal.market.amount * self.lot_size * databits.for_predictors.Close.values[-1]))
+            signal.market.amount = actual_market_amount
+            
             if not self.params.Backtest:
-                if not self.default_RM(cndls):
-                    ord = self._real_order(Decision(signal.direction, actual_amount))
-                else:
-                    ord = self._real_order(Decision(False, self.possession/self.lot_size))
-
-
+                market_ord = self._real_order(signal.market)
+                stoploss_ord = self._real_order(signal.stop_loss)
+                #takeprofit_ord = self._real_order(signal.take_profit)
+                
 
             else:
-                if not self.default_RM(cndls):
-                    self._test_order(Decision(signal.direction, actual_amount), cndls.Close.values[-1])
-                else:
-                    self._test_order(Decision(False, self.possession/self.lot_size), cndls.Close.values[-1])
+                self._test_order(Decision(signal.market.direction, actual_market_amount), databits.for_predictors.Close.values[-1])
                     
                 self.history['Budget'].append(self.params.Budget)
                 self.history['Possession'].append(self.possession)
-                self.history['Signals'].append(signal)
-                self.history['Buy prices' if signal.direction else 'Sell prices'].append(databit.Close.values[-1])
-                self.history['Buy prices' if not signal.direction else 'Sell prices'].append(None)
-                self.history['PnL'].append(self.params.Budget + self.possession * self.lot_size * databit.Close.values[-1])
+                self.history['Signals'].append(signal.market)
+                self.history['Buy prices' if signal.market.direction else 'Market sell prices'].append(databits.for_predictors.Close.values[-1])
+                self.history['Buy prices' if not signal.market.direction else 'Market sell prices'].append(None)
+                self.history['PnL'].append(self.params.Budget + self.possession * self.lot_size * databits.for_predictors.Close.values[-1])
+                self.history['Stoploss sell prices'].append(None)
+                self.history['Takeprofit sell prices'].append(None)
 
         else:
             self.history['Signals'].append(None)
             self.history['Budget'].append(self.params.Budget)
             self.history['Possession'].append(self.possession)
             self.history['Buy prices'].append(None)
-            self.history['Sell prices'].append(None)
-            self.history['PnL'].append(self.params.Budget + self.possession * self.lot_size * databit.Close.values[-1])
+            self.history['Market sell prices'].append(None)
+            self.history['PnL'].append(self.params.Budget + self.possession * self.lot_size * databits.for_predictors.Close.values[-1])
+            self.history['Stoploss sell prices'].append(None)
+            self.history['Takeprofit sell prices'].append(None)
+
+        return transparency*[self._get_signal(databits), databits]
 
     def clear_history(self):
         self.history = {'Budget': [self.params.Budget],
                         'Signals': [None],
-                        'Possession': [0],
-                        'Buy prices': [None],
-                        'Sell prices': [None],
+                        'Possession': [self.history['Possession'][0]],
+                        'Buy prices': [self.history['Buy prices'][0]],
+                        'Market sell prices': [None],
+                        'Stoploss sell prices': [None],
+                        'Takeprofit sell prices': [None],
                         'PnL': [self.params.Budget]}

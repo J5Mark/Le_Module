@@ -4,147 +4,11 @@ import pandas as pd
 from tinkoff.invest import CandleInterval, Client
 from tinkoff.invest.utils import now
 from datetime import timedelta
-import dataclasses
 from dataclasses import dataclass
-import math
-from tinkoff.invest import MoneyValue, Quotation
+from PredictorsManagement.pm import *
+from Utilities.DataClasses import *
 
 #Ive decided to keep technical indicators functions more-less the same in what arguments they take
-@dataclass(init=False, order=True)
-class Money:
-    units: int
-    nano: int
-    MOD: int = 10 ** 9
-
-    def __init__(self, value: int | float | Quotation | MoneyValue, nano: int = None):
-        if nano:
-            assert isinstance(value, int), 'if nano is present, value must be int'
-            assert isinstance(nano, int), 'nano must be int'
-            self.units = value
-            self.nano = nano
-        else: 
-            match value:
-                case int() as value:
-                    self.units = value
-                    self.nano = 0
-                case float() as value:
-                    self.units = int(math.floor(value))
-                    self.nano = int((value - math.floor(value)) * self.MOD)
-                case Quotation() | MoneyValue() as value:
-                    self.units = value.units
-                    self.nano = value.nano
-                case _:
-                    raise ValueError(f'{type(value)} is not supported as initial value for Money')
-
-    def __float__(self):
-        return self.units + self.nano / self.MOD
-
-    def to_float(self):
-        return float(self)
-
-    def to_quotation(self):
-        return Quotation(self.units, self.nano)
-
-    def to_money_value(self, currency: str):
-        return MoneyValue(currency, self.units, self.nano)
-
-    def __add__(self, other: Money) -> Money:
-        print(self.units + other.units + (self.nano + other.nano) // self.MOD)
-        print((self.nano + other.nano) % self.MOD)
-        return Money(
-            self.units + other.units + (self.nano + other.nano) // self.MOD,
-            (self.nano + other.nano) % self.MOD
-        )
-
-    def __neg__(self) -> Money:
-        return Money(-self.units, -self.nano)
-
-    def __sub__(self, other: Money) -> Money:
-        return self + -other
-
-    def __mul__(self, other: int) -> Money:
-        return Money(self.units * other + (self.nano * other) // self.MOD, (self.nano * other) % self.MOD)
-
-    def __str__(self) -> str:
-        return f'<Money units={self.units} nano={self.nano}>'
-
-@dataclass
-class Indicator:
-    name: str
-    values: np.ndarray | float
-    span: list[int] | None = None
-
-    def __getitem__(self, key):
-        return Indicator(name=self.name, values=self.values[key], span=self.span)
-
-@dataclass
-class Candles:
-    '''An array of candles'''
-    Open: Indicator
-    Close: Indicator
-    High: Indicator
-    Low: Indicator 
-    Volume: Indicator | None = None
-
-    MAs: list[Indicator] | None = None #first goes the lower span MA
-    MACDhist: Indicator | None = None
-    ATR: Indicator | None = None
-    BollingerBands: list[Indicator] | None = None
-
-    FIGI: str | None = None
-    SecurityName: str | None = None
-
-    def __iter__(self):
-        yield from dataclasses.asdict(self).values()
-
-    def __getitem__(self, key):
-        _ = Candles(0, 0, 0, 0, 0)
-        for name in _.__dict__.keys():
-            if isinstance(self.__getattribute__(name), Indicator):     
-                _.__setattr__(name, self.__getattribute__(name)[key])
-            elif isinstance(self.__getattribute__(name), list):
-                _.__setattr__(name, [e[key] for e in self.__getattribute__(name)])
-                    
-            else:
-                _.__setattr__(name, self.__getattribute__(name))
-        
-        return _
-    
-    def as_nparray(self) -> np.ndarray:
-        return self.as_dataframe().to_numpy()
-
-    def as_dict(self) -> dict:
-        return self.__dict__
-    
-    def as_dataframe(self) -> pd.DataFrame:
-        all_values = []
-        for name in self.__dict__.keys(): 
-            if isinstance(self.__getattribute__(name), Indicator):
-                all_values += [self.__getattribute__(name)]
-            elif isinstance(self.__getattribute__(name), list):
-                for each in self.__getattribute__(name):
-                    all_values += [each]
-            
-        lens = [len(g.values) for g in all_values if g != None]
-        df = pd.DataFrame([])
-
-        for each in [self.__getattribute__(name) for name in self.__dict__.keys() if not isinstance(self.__getattribute__(name), list) and not isinstance(self.__getattribute__(name), str)]:
-            if each != None:
-                df[each.name] = each.values[-min(lens):]
-        if self.BollingerBands != None and self.MAs != None:
-            if [i for i in self.BollingerBands][1].span[0] not in [g.span[0] for g in self.MAs]:
-                for each in [self.MAs, self.BollingerBands]:
-                    for t in each:
-                        ma = t.name == 'moving average'
-                        df[t.name + ' ' + int(ma)*str(t.span[0])] = t.values[-min(lens):]
-            else:
-                for each in [[i for i in self.MAs if self.MAs != None], [[i for i in self.BollingerBands if self.BollingerBands != None][0], [i for i in self.BollingerBands if self.BollingerBands != None][2]]]:
-                    for t in each:
-                        ma = t.name == 'moving average'
-                        df[t.name + ' ' + int(ma)*str(t.span[0])] = t.values[-min(lens):]
-            
-        return df
-
 
 def calcMACD(data : Candles) -> Indicator:  
     '''MACD histogram is one of the main indicators for assessing the "impulse" of the market movement'''
@@ -208,7 +72,7 @@ def createdataset_tinkoff(df : Candles) -> Candles:
     df.BollingerBands = calcBollinger_bands(df)
     return df
 
-def get_training_data(indicators: Candles, len_of_sample : int = 5, len_of_label : int = 1, scope : int = 1, predictable: str='close') -> tuple:
+def get_training_data(indicators: Candles, len_of_sample : int = 5, len_of_label : int = 1, scope : int | None=None, predictable: str | market_condition='close') -> tuple:
     '''Split your Candles dataset into samples and labels.
 
     :scope: is how far your model is going to predict. 
@@ -222,27 +86,29 @@ def get_training_data(indicators: Candles, len_of_sample : int = 5, len_of_label
         
         asdf = indicators.as_dataframe()
         cols = asdf.columns
-        
-        for i in range(len(asdf)-len_of_sample-len_of_label+1-scope):
-            ins = pd.DataFrame([])
-            ins = asdf[:][i:i+len_of_sample]  
-        
-            if len_of_label == 1:          
-                y = asdf.iloc[i+len_of_sample+scope-1, cols.get_loc(predictable)]
-            else:
-                y = asdf.iloc[i+len_of_sample+scope-1:i+len_of_sample+scope-1+len_of_label, cols.get_loc(predictable)]
-            pic = np.reshape(ins.values, (len_of_sample, asdf.shape[1]))
-
-            training.append(pic)
-            labels.append(y)
-
+        if isinstance(predictable, str):
+            for i in range(len(asdf)-len_of_sample-len_of_label+1-scope):
+                ins = pd.DataFrame([])
+                ins = asdf[:][i:i+len_of_sample]  
+                if len_of_label == 1:          
+                    y = asdf.iloc[i+len_of_sample+scope-1, cols.get_loc(predictable)]
+                else:
+                    y = asdf.iloc[i+len_of_sample+scope-1:i+len_of_sample+scope-1+len_of_label, cols.get_loc(predictable)]
+                pic = np.reshape(ins.values, (len_of_sample, asdf.shape[1]))
+                training.append(pic)
+                labels.append(y)
+        elif isinstance(predictable, market_condition):  ###################
+            for i in range(len(asdf)-len_of_sample-1):
+                ins = asdf[:][i:i+len_of_sample]
+                pic = np.reshape(ins.values, (len_of_sample, asdf.shape[1]))
+                y = predictable(indicators[i+1])
+                training.append(pic)
+                labels.append(y)
         training = np.array(training)
         labels = np.array(labels)
         return (training, labels)
     except KeyError:
-        print(f'{predictable} is not a name of an indicator, or it is just written incorrectly\n should be in: \n{[i for i in cols]}')
-    except:
-        print('something else happened')
+        print(f'{predictable} is not a name of an indicator, or it is just spelled incorrectly\n should be in: \n{[i for i in cols]}')
     
 
 def get_data_tinkoff(TOKEN : str, FIGI : str, period : int=12, interval : CandleInterval=CandleInterval.CANDLE_INTERVAL_5_MIN) -> Candles:
@@ -280,9 +146,22 @@ def get_data_tinkoff(TOKEN : str, FIGI : str, period : int=12, interval : Candle
 class Decision:
     '''dataclass for trading decisions.
       :direction: True - buy, False - sell
-      :amount: how many lots to buy/sell'''
+      :amount: how many lots to buy/sell, -1 for all in access
+      :type: type of the order, 0 - market, 1 - stoploss, 2 - takeprofit'''
     direction: bool
     amount: int
     # These ones are really important for real trading, not for backtesting:
     type: int=0
     price: float=-1
+    
+@dataclass
+class DecisionsBatch:
+    market: Decision | None=None
+    stop_loss: Decision | None=None
+    take_profit: Decision | None=None    
+    
+@dataclass
+class DatabitsBatch:
+    for_predictors: Candles | None=None
+    for_trendviewers: Candles | None=None
+    for_risk_managers: Candles | None=None
