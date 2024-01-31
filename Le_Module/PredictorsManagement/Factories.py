@@ -73,11 +73,11 @@ class AIPredictorFactory(PredictorFactory):
         
         if isinstance(params.predictable, str):
             if params.output_len > 1:
-                predictor = AISequencePredictor(v_model=model, predictable_value=params.predictable)
+                predictor = AISequencePredictor(v_model=model, predictable_value=params.predictable, input_len=params.input_len, input_width=params.input_width)
             elif params.output_len == 1:
-                predictor = AITrendviewer(v_model=model, predictable_value=params.predictable)
+                predictor = AITrendviewer(v_model=model, predictable_value=params.predictable, input_len=params.input_len, input_width=params.input_width)
         elif isinstance(params.predictable, market_condition):
-            predictor = AIConditionPredictor(c_model=model, predictable=params.predictable)
+            predictor = AIConditionPredictor(c_model=model, predictable_condition=params.predictable, input_len=params.input_len, input_width=params.input_width)
         else:    
             raise NoSuchPredictableError(params.predictable)
         

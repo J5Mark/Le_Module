@@ -43,7 +43,7 @@ class AIConditionPredictor(Predictor):
     def predict(self, databit):
         return PredictorResponse(pred=self.predict_condition(databit))
     
-    def _examine_preformance(self, dataset: Candles) -> tuple:
+    def _examine_performance(self, dataset: Candles) -> tuple:
         dt = dataset.as_dataframe()
         try:
             real = [dataset.Close.values[i] if self.predictable_condition(dataset[i]) else None for i in range(input_len, len(dataset.Close))]
