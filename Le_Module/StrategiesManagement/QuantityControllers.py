@@ -1,4 +1,5 @@
 import random as rd
+from PredictorsManagement.pm import Candles, PredictorResponse
 from Utilities.FinUtils import Candles
 import numpy as np
 from numpy import ndarray
@@ -67,11 +68,11 @@ class AIQuantityControllerBPR_avg(QuantityController):
         if any(risks): return -1
         if direction:
             if predictions[0].pred.avg_bias_adjusted[0] > databit.Close.values[-1] * (1 + self.comission*0.01):
-                N = 3
-            elif predictions[0].pred.biased > databit.Close.values[-1] * (1 + self.comission*0.01):
                 N = 2
-            else:
+            elif predictions[0].pred.biased > databit.Close.values[-1] * (1 + self.comission*0.01):
                 N = 1
+            else:
+                N = 0
         else: N = -1
         return N
     
@@ -82,11 +83,11 @@ class AIQuantityControllerBPR_med(QuantityController):
         if any(risks): return -1
         if direction:
             if predictions[0].pred.med_bias_adjusted[0] > databit[-1].Close.values[-1] * (1 + self.comission*0.01):
-                N = 3
-            elif predictions[0].pred.biased > databit[-1].Close.values[-1] * (1 + self.comission*0.01):
                 N = 2
-            else:
+            elif predictions[0].pred.biased > databit[-1].Close.values[-1] * (1 + self.comission*0.01):
                 N = 1
+            else:
+                N = 0
         else: N = -1
         return N
     
@@ -110,3 +111,49 @@ class RandomSellingBlocked(QuantityController):
 class RandomQithHodlSellingBlocked(QuantityController):
     def decide_quantity(self, databit: Candles, direction: bool, trend: list[PredictorResponse] | None = None, predictions: list[PredictorResponse] | None = None, risks: list[bool] | None = None) -> int:
         return rd.choice([0,0,0,0,*list(range(1,11))]) if direction else 0
+    
+class MyComplexQuantity(QuantityController):
+    def __init__(self, bounce_up: float=0, bounce_down: float=0, greater_ma_ind: int=-1, least_ma_ind: int=0, trend_coef: float=1):
+        self.trend_coef = trend_coef
+        self.bounce_up = bounce_up
+        self.bounce_down = bounce_down
+        self.greater_ma_ind = greater_ma_ind
+        self.least_ma_ind = least_ma_ind
+        
+    def decide_quantity(self, databit: Candles, direction: bool, trend: list[PredictorResponse] | None = None, predictions: list[PredictorResponse] | None = None, risks: list[bool] | None = None) -> int:
+        if direction == True:
+            return sum([databit.Close <=  databit.BollingerBands[0] * (1+self.bounce_up), 
+                    databit.Low <= databit.BollingerBands[0] * (1+self.bounce_up),     # bollinger_bounce thing here
+                    databit.MAs[self.least_ma_ind] > databit.MAs[self.greater_ma_ind], # crossing mas thig
+                    databit.MAs[self.least_ma_ind] > databit.Close,  # least span ma higher than price
+                    trend[0].pred.biased > databit.Close]) #trend taken in account
+        elif direction == None:
+            return 0
+        elif direction == False:
+            return -1
+        
+class MyComplexQuantityNoAI(QuantityController):
+    def __init__(self, bounce_up: float=0, bounce_down: float=0, greater_ma_ind: int=-1, least_ma_ind: int=0):
+        self.bounce_up = bounce_up
+        self.bounce_down = bounce_down
+        self.greater_ma_ind = greater_ma_ind
+        self.least_ma_ind = least_ma_ind
+        
+    def decide_quantity(self, databit: Candles, direction: bool, trend: list[PredictorResponse] | None = None, predictions: list[PredictorResponse] | None = None, risks: list[bool] | None = None) -> int:
+        if direction == True:
+            return sum([databit.Close <=  databit.BollingerBands[0] * (1+self.bounce_up),
+                    databit.Low <= databit.BollingerBands[0] * (1+self.bounce_up),     # bollinger_bounce thing here
+                    databit.MAs[self.least_ma_ind] > databit.MAs[self.greater_ma_ind], # crossing mas thig
+                    databit.MAs[self.least_ma_ind] > databit.Close]) #least ma crossing closing price
+        elif direction == None:
+            return 0
+        elif direction == False:
+            return -1
+        
+class FixedQuantity(QuantityController):
+    def __init__(self, quantity_to_buy: int=1, quantity_to_sell: int=-1):
+        self.buy = quantity_to_buy
+        self.sell = quantity_to_sell
+        
+    def decide_quantity(self, databit: Candles, direction: bool, trend: list[PredictorResponse] | None = None, predictions: list[PredictorResponse] | None = None, risks: list[bool] | None = None):
+        return self.buy if direction else self.sell

@@ -33,14 +33,14 @@ class AIConditionPredictor(Predictor):
             except:
                 print(f'seems like the sample (with shape: {databit.shape}) cannot be reshaped to the c_model`s input_shape: {self.c_model.input_shape[1:]}')
             prob = self.c_model.predict(databit, verbose=False)
-            return np.reshape(prob, (1))
+            return np.reshape(prob, (1))[0]
         else:
             raise NoModelInsertedError(self.c_model)
     
     def predict_condition(self, databit: np.ndarray) -> bool:
         return bool(round(self.probability_predict(databit)))   
         
-    def predict(self, databit):
+    def predict(self, databit) -> PredictorResponse:
         return PredictorResponse(pred=self.predict_condition(databit))
     
     def _examine_performance(self, dataset: Candles) -> tuple:
