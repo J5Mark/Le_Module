@@ -40,6 +40,14 @@ def calcATR(data : Candles) -> Indicator:
         atr.append((atr[-1]*13 + max(pre_tr))/14)
     return Indicator(name='average true range', values=np.array(atr), span=[0])
 
+def calcVolatility(c: Candles, span: int=20) -> Indicator:
+    vols = []
+    for i in range(span, len(c.Close)):
+        std = np.std(c.Close.values[i-span:i])
+        vols.append(std*(span**0.5))
+    
+    return Indicator(name='volatility', values=np.array(vols), span=[span])
+
 def calcBollinger_bands(data : Candles, span : int=20) -> list[Indicator]: 
     '''Bollinger bands are useful for understanding the gap in which potential security price movement may occur'''
     middle_band = calcMA(data, span=span)
@@ -195,9 +203,10 @@ def all_about_drawdowns(pnl):
     return MDD, PDD, beginning, ending
 
 def sharpe_ratio(pnls, riskfree=0):
-    std = np.std(pnls)
+    std = np.std(np.array(pnls) - pnls[0])
     if std != 0:
-        sharpe_ratio = (pnls[-1] - riskfree)/std
+        sharpe_ratio = (pnls[-1] - riskfree*pnls[0]/100)/std
     else:
         sharpe_ratio = None
     return sharpe_ratio
+

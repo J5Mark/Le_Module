@@ -5,9 +5,26 @@ import dataclasses
 from dataclasses import dataclass
 import math
 from tinkoff.invest import MoneyValue, Quotation
-from PredictorsManagement.pm import *
 import keras
 from abc import ABC, abstractmethod
+
+class WrongDimsNdArrayError(Exception):
+    def __init__(self, correct_dims: tuple, provided_dims: tuple):
+        self.msg = f'np.ndarray is of unfit shape.\nShape of provided np.ndarray: {provided_dims}\nCorrect shape: {correct_dims}'
+        super().__init__(self.msg)
+        
+class AppendingImpossibleError(Exception):
+    def __init__(self, ind: Indicator | Candles, val):
+        if isinstance(ind, Indicator):
+            self.msg = f'{val} (type: {val.__class__}) cannot be appended to {ind.name} indicator.\nValues provided:\n   {val}\n   {ind}'
+        elif isinstance(ind, Candles):
+            self.msg = f'{val} (type: {val.__class__}) cannot be appended to {ind.__class__} object.\nValues provided:\n   {val}\n   {ind}'
+        super().__init__(self.msg)
+        
+class DifferentIndicatorsNamesError(Exception):
+    def __init__(self, ind1: Indicator, ind2: Indicator):
+        self.msg = f'Appending {ind2.name} to {ind1.name} makes no sense and is useless'
+        super().__init__(self.msg)
 
 @dataclass(init=False, order=True)
 class Money:
@@ -154,6 +171,27 @@ class Indicator:
     def __isub__(self, __value: Indicator | float):
         self = self - __value
         return self
+    
+    def append(self, vals: Indicator | list | np.ndarray | float):
+        match vals:
+            case Indicator():
+                if self.name == vals.name:
+                    self.values = np.array(self.values.tolist() + vals.values.tolist())
+                else:
+                    raise DifferentIndicatorsNamesError(self, vals)
+            case list():
+                self.values = np.array(self.values.tolist() + vals)
+            case np.ndarray():
+                self.values = np.array(self.values.tolist() + vals.tolist())
+            case float():
+                self.values = np.array(self.values.tolist() + [vals])
+            case int():
+                self.values = np.array(self.values.tolist() + [float(vals)])
+            case None:
+                return
+            case _:
+                raise AppendingImpossibleError(self, vals)
+                
             
 @dataclass
 class Candles:
@@ -169,6 +207,7 @@ class Candles:
     MACDhist: Indicator | None = None
     ATR: Indicator | None = None
     BollingerBands: list[Indicator] | None = None
+    Volatility: Indicator | None = None
 
     FIGI: str | None = None
     SecurityName: str | None = None
@@ -224,6 +263,15 @@ class Candles:
         df = df.loc[:,~df.columns.duplicated()].copy()
         
         return df
+    
+    def append(self, c: Candles | Indicator):  ###later plss
+        match c:
+            case Candles():
+                pass
+            case Indicator():
+                pass
+            case _:
+                raise AppendingImpossibleError(self, c)
     
 @dataclass
 class Decision:

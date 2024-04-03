@@ -1,7 +1,8 @@
 from abc import ABC, abstractmethod
-from Utilities.DataClasses import *
+from Utilities.DataClasses import Candles
 import numpy as np
 import keras
+from dataclasses import dataclass
 
 class WrongDimensionsError(Exception):
     '''Exception raised when a dimension of predictor's input is not in line with predictor's model's input shape'''
