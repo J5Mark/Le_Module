@@ -197,24 +197,6 @@ class AutomatedStrategy:
                     self.b_prices_list = []            
             else:
                 print('\n'+f'Order {order.order_id} is not fully or partially executed')
-        #orderstate: OrderState | None = self.bridge.check_orders([order.order_id])[0] if order else None
-        #if orderstate:
-            #if orderstate in [1, 5]:
-                #if signal.direction:#buy
-                    #self._params.Budget -= (1+orderstate.executed_commission) * order.price * self.lot_size * orderstate.lots_executed
-                    #self.possession += self.lot_size * orderstate.lots_executed
-                    #self.b_prices_list += [order.price] * self.lot_size * orderstate.lots_executed
-
-                #elif signal.direction == False: #sell
-                    #self._params.Budget += (1+orderstate.executed_commission) * order.price * self.lot_size * orderstate.lots_executed
-                    #self.possession -= self.lot_size * orderstate.lots_executed
-                    #if self.possession != 0:
-                        #self.b_prices_list = [np.mean(self.b_prices_list[self.lot_size*orderstate.lots_executed:])] * self.possession
-                    #else:
-                        #self.b_prices_list = []            
-            #else: 
-                #file.write()'\n'+f'Order {order.order_id} is not fully or partially executed'
-
         
     def _test_order(self, signal: Decision, price: float | None = None):  
         price = price
@@ -408,10 +390,6 @@ class AutomatedStrategy:
                         file.flush()
                         print(f'at time : {datetime.datetime.now()} \nencountered an Unknown Error \nhandling(number of attempt: {e+1} / {self.max_attempts})...')
                         datastream.stop()
-                        #if len(self.history.PnL) > 1:
-                            #with open(f'trading_{self.strategy_id}.json', 'w+') as jsonfile:
-                                #dict_ = {k : self.history.__dict__[k] for k in list(self.history.__dict__.keys())}
-                                #json.dump(obj=dict_, fp=jsonfile, cls=EnhancedJSONEncoder) 
                     finally:
                         datastream.stop()
             
