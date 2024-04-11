@@ -13,6 +13,7 @@ PredictorsManagement/pm.py
 PredictorsManagement/old/__init__.py
 PredictorsManagement/old/predictor_class.py
 StrategiesManagement/DecidingModules.py
+StrategiesManagement/Orchestrating.py
 StrategiesManagement/QuantityControllers.py
 StrategiesManagement/RiskManagers.py
 StrategiesManagement/__init__.py

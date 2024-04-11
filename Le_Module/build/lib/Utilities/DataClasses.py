@@ -7,6 +7,7 @@ import math
 from tinkoff.invest import MoneyValue, Quotation
 import keras
 from abc import ABC, abstractmethod
+import json
 
 class WrongDimsNdArrayError(Exception):
     def __init__(self, correct_dims: tuple, provided_dims: tuple):
@@ -25,6 +26,18 @@ class DifferentIndicatorsNamesError(Exception):
     def __init__(self, ind1: Indicator, ind2: Indicator):
         self.msg = f'Appending {ind2.name} to {ind1.name} makes no sense and is useless'
         super().__init__(self.msg)
+        
+class WrongIndicatorSelectedError(Exception):
+    '''raised when :indicator: in calcEntropy() is none or just doesn`t exist in the provided candles object'''
+    def __init__(self, indicator: str, c: Candles):
+        self.message = f"Nonexistent indicator selected(or just the spelling is wrong). \n{indicator} was provided. should be in {[ind.name for ind in list(c.__dict__.values()) if ind.values is not None]}"
+        super().__init__(self.message)
+
+class EnhancedJSONEncoder(json.JSONEncoder):
+    def default(self, o):
+        if dataclasses.is_dataclass(o):
+            return dataclasses.asdict(o)
+        return super().default(o)
 
 @dataclass(init=False, order=True)
 class Money:
@@ -230,9 +243,6 @@ class Candles:
     
     def as_nparray(self) -> np.ndarray:
         return self.as_dataframe().to_numpy()
-
-    def as_dict(self) -> dict:
-        return self.__dict__
     
     def as_dataframe(self) -> pd.DataFrame: #create dataframe with a column for each indicator. Make sure the lengthof the frame is the minimum of all lengths #drop duplicate columns
         names_of_attributes = self.__dict__.keys()
@@ -344,3 +354,9 @@ class Asset:
     figi: str
     name : str | None=None
     lot_size: int | None=None
+
+@dataclass
+class PriceLevel:
+    price_area: tuple[float]
+    occurance: int
+    last_encounter: int

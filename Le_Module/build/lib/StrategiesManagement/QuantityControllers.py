@@ -157,3 +157,30 @@ class FixedQuantity(QuantityController):
         
     def decide_quantity(self, databit: Candles, direction: bool, trend: list[PredictorResponse] | None = None, predictions: list[PredictorResponse] | None = None, risks: list[bool] | None = None, budget: float | None=None):
         return self.buy if direction else self.sell
+    
+class MAAngleEarlierBuyMore(QuantityController):
+    def __init__(self, maximum: int, k: float, minimum: int = 1,  border_count: int = 2):
+        self.maximum = maximum
+        self.minimum = minimum
+        self.k = k
+        self.counter = 0
+        self.border_count = border_count
+        
+    def decide_quantity(self, databit: Candles, direction: bool, trend: list[PredictorResponse] | None = None, predictions: list[PredictorResponse] | None = None, risks: list[bool] | None = None, budget: float | None = None) -> int:
+        assert databit.MAs is not None 
+        assert len(databit.MAs[0]) >= 2
+        if direction:
+            self.counter += 1
+            if self.counter < self.border_count:
+                if databit.MAs[0][-1]/databit.MAs[0][-2] > (1+self.k):
+                    return self.maximum
+                else:
+                    return self.minimum
+            elif self.counter >= 2:
+                less = self.maximum - self.counter-1
+                return less if less > self.minimum else self.minimum
+        elif direction is None:
+            return None
+        else:
+            self.counter = 0
+            return -1

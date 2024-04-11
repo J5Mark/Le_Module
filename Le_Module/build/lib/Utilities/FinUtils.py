@@ -48,6 +48,22 @@ def calcVolatility(c: Candles, span: int=20) -> Indicator:
     
     return Indicator(name='volatility', values=np.array(vols), span=[span])
 
+def calcEntropy(c: Candles, span: int, n_of_levels: int = 40, indicator: str='close') -> float:
+    in_question = None
+    for ind in list(c.__dict__.values()):
+        if indicator == ind.name:
+            in_question: Indicator = ind
+            break
+    if in_question is None: raise WrongIndicatorSelectedError(indicator, c)
+    
+    borders = (min(in_question.values[-span:]), max(in_question.values[-span:]))
+    s = (borders[1]-borders[0])/n_of_levels
+    levels = np.arange(start=borders[0], stop=borders[1]+s, step=s)
+    kinda_probabilities = [sum(np.bitwise_and(in_question.values >= levels[i-1], in_question.values < levels[i]))/len(in_question.values) for i in range(len(levels))]
+    entropy = -sum([p*np.log2(p) for p in kinda_probabilities[1:] if p != 0])
+    
+    return entropy
+
 def calcBollinger_bands(data : Candles, span : int=20) -> list[Indicator]: 
     '''Bollinger bands are useful for understanding the gap in which potential security price movement may occur'''
     middle_band = calcMA(data, span=span)
@@ -155,19 +171,43 @@ def get_data_tinkoff(TOKEN : str, FIGI : str, period : int=12, interval : Candle
 
     return dt
 
-def find_extremums(candles: Candles, windowlen: int=100, the_N: int=1): ############################### guess ill just finish this a bit later
-    extremums = {'peaks': [], 'dips': []}
-    for i in range(the_N, len(candles)-the_N, the_N):
-        mn = candles[candles.Low.values.index(min(candles[i-the_N : i+the_N].Low.values))]
-        mx = candles[candles.High.values.index(max(candles[i-the_N : i+the_N].Low.values))]
-        extremums['dips'].append(mn)
-        extremums['peaks'].append(mx)
-        for e in range(i-the_N, i+the_N):
-            pass
-            
-
-def find_levels(candles: Candles, windowlen: int=100, the_N: int=1):
-    pass
+def find_levels(candles: Candles, windowlen: int=100, N: int=3, area: float=0.005) -> list[PriceLevel]: 
+    levels = []
+    mean_price = np.mean(candles.Close.values[-windowlen:])
+    for i in range(len(candles.Close.values)-windowlen-N, len(candles.Close.values), N//2):
+        current_high_window = candles.High.values[i:i+N]
+        current_low_window = candles.Low.values[i:i+N]
+        local_max, lmi = max(current_high_window), np.where(current_high_window == max(current_high_window))[0][0] #a value and an index where it is in the current window
+        local_low, lli = min(current_low_window), np.where(current_low_window == min(current_low_window))[0][0]
+        lm_delta = min([local_max - candles.Close.values[i + lmi], local_max - candles.Open.values[i + lmi]])
+        ll_delta = min([candles.Close.values[i + lli] - local_low, candles.Open.values[i + lli] - local_low])
+        lm = local_max - 0.25*lm_delta
+        ll = local_low + 0.25*ll_delta
+        levels.append((lm - (area)*mean_price, lm + (area)*mean_price))
+        levels.append((ll - (area)*mean_price, ll + (area)*mean_price))
+    intersections = []
+    for i in range(len(levels)):
+        current_set_of_close_diapazons = [levels[i]]
+        for e in range(i, len(levels)):
+            if (levels[i][1] > levels[e][0] and levels[i][1] < levels[e][1]) or (levels[i][0] > levels[e][0] and levels[i][0] < levels[e][1]):
+                betw_closest = min([abs(levels[i][0] - levels[e][1]), abs(levels[i][1] - levels[e][0])])
+                betw_farest = max([abs(levels[i][0] - levels[e][1]), abs(levels[i][1] - levels[e][0])])
+                if betw_farest == betw_closest or betw_closest / betw_farest >= 0.5:
+                    current_set_of_close_diapazons.append(levels[e])
+                intersections.append(current_set_of_close_diapazons)
+    
+    unique_intersections_ends = set([i[-1] for i in intersections])
+    unique_intersections = [max([inter for inter in intersections if inter[-1] == current_end], key=len) for current_end in unique_intersections_ends] #changed to max here
+    real_areas = [(round(min([y[0] for y in u]), 6), round(min([y[1] for y in u]), 6)) for u in unique_intersections]
+    pricelevels = []
+    for area in real_areas:
+        high_indices = [i for i in range(windowlen) if area[0] <= candles.High.values[-windowlen + i] <= area[1]]
+        low_indices = [i for i in range(windowlen) if area[0] <= candles.Low.values[-windowlen + i] <= area[1]]
+        pricelevels.append(PriceLevel(price_area=area, occurance=len(high_indices) + len(low_indices),
+                                last_encounter=min([windowlen - ([windowlen] + low_indices)[-1], windowlen - ([windowlen] + high_indices)[-1]])))
+    
+    return pricelevels
+                    
 
 def detect_last_collision(line: Indicator, level: Indicator, strictness: float = 0.01) -> Collision:
     '''

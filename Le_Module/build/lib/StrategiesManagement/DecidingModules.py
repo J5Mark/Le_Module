@@ -25,7 +25,7 @@ class DecidingModule(ABC):
     def __init__(self, comission: float=0.05, preparing_data: ParameterControllerData | None=None):
         ''':comission: comission rate that the broker has set for the security (percents)'''
         self.comission = comission
-        if any(preparing_data):
+        if any([preparing_data]):
             self.paramcontroller = self.parameter_controller()
 
     def _allow_trading(self, databit: Candles, trend: list | None = None) -> bool:
@@ -124,7 +124,7 @@ class MAGrowingSpeed0(DecidingModule):
         self.k = k
     
     def decide(self, databit: Candles, trend: list[PredictorResponse] | None = None, predictions: list[PredictorResponse] | None = None, risks: list | None = None) -> bool | None:
-        assert len(databit.MAs[0]) >= 3
+        assert len(databit.MAs[0]) >= 2
         current_ma_speed = databit.MAs[0].values[-1] - databit.MAs[0].values[-2]
         
         return current_ma_speed >= self.k*databit.MAs[0].values[-1]  #####works suspiciously well, gotta test you on some other things    
@@ -134,7 +134,7 @@ class EMAGrowingSpeed0(DecidingModule):
         self.k = k
     
     def decide(self, databit: Candles, trend: list[PredictorResponse] | None = None, predictions: list[PredictorResponse] | None = None, risks: list | None = None) -> bool | None:
-        assert len(databit.EMAs[0]) >= 3
+        assert len(databit.EMAs[0]) >= 2
         current_ma_speed = databit.EMAs[0].values[-1] - databit.EMAs[0].values[-2]
         
         return current_ma_speed >= self.k*databit.EMAs[0].values[-1]

@@ -5,14 +5,14 @@ from PaperworkManagement.papman import *
 from PredictorsManagement.Predictors import *
 from Utilities.FinUtils import *
 from Utilities.DataClasses import *
-from tinkoff.invest import CandleInterval, OrderState
+from tinkoff.invest import CandleInterval
 from StrategiesManagement.DecidingModules import *
 from StrategiesManagement.QuantityControllers import *
 from StrategiesManagement.RiskManagers import *
 import math as m
 import json
 from tinkoff.invest.exceptions import *
-from tinkoff.invest.services import MarketDataStreamManager, Services
+from tinkoff.invest.services import MarketDataStreamManager
 import datetime
 
 class PriceDataTypeError(Exception):
@@ -123,6 +123,7 @@ class StrategyParams:
     Budget: float = 0.0
     Backtest: bool = True 
 
+
 class AutomatedStrategy:
     '''a class for all strategies(its modular)'''
 
@@ -133,8 +134,10 @@ class AutomatedStrategy:
                  possession: int=0,
                  mean_buy_price: float=0,
                  commission: float=0.3,
-                 transparency: bool=False):
+                 transparency: bool=False, 
+                 orchestrator=None): #for now in order to not circlejerk imports i`ll leave this typeless
         self.transparency = transparency
+        self.orchestrator = orchestrator
         self._params = params
         self.strategy_id = strategy_id
         self.bridge = bridge 
@@ -148,6 +151,7 @@ class AutomatedStrategy:
         self.for_predictors: int | None = None
         self.for_risk_managers: int | None = None
         self.for_trendviewers: int | None = None
+        self.max_attempts = 10
         self.history: BotStats = BotStats(PnL=[self._params.Budget],
                                               Buy_prices=[mean_buy_price if mean_buy_price != 0 else None],
                                               Market_sell=[None], 
@@ -156,6 +160,11 @@ class AutomatedStrategy:
                                               Budget=[self._params.Budget],
                                               Signals=[None],
                                               Takeprofit_sell=[None])
+    
+    @property
+    @abstractmethod
+    def get_figi(self) -> str:
+        return self._params.FIGI
     
     @property
     @abstractmethod
@@ -187,7 +196,7 @@ class AutomatedStrategy:
                 else:
                     self.b_prices_list = []            
             else:
-                self.txtlog += '\n'+f'Order {order.order_id} is not fully or partially executed'
+                print('\n'+f'Order {order.order_id} is not fully or partially executed')
         #orderstate: OrderState | None = self.bridge.check_orders([order.order_id])[0] if order else None
         #if orderstate:
             #if orderstate in [1, 5]:
@@ -204,7 +213,7 @@ class AutomatedStrategy:
                     #else:
                         #self.b_prices_list = []            
             #else: 
-                #self.txtlog += '\n'+f'Order {order.order_id} is not fully or partially executed'
+                #file.write()'\n'+f'Order {order.order_id} is not fully or partially executed'
 
         
     def _test_order(self, signal: Decision, price: float | None = None):  
@@ -229,12 +238,13 @@ class AutomatedStrategy:
             if self._params.Budget >= databits.for_predictors.Close.values[-1] * self.lot_size * signal.market.amount:
                 actual_market_amount = signal.market.amount
             else:
-                actual_market_amount = m.floor(self._params.Budget / (signal.market.amount * self.lot_size * databits.for_predictors.Close.values[-1]))
+                actual_market_amount = int(self._params.Budget // (self.lot_size * databits.for_predictors.Close.values[-1]))
                 
         elif signal.market.direction == False:
             if signal.market.amount == -1:
-                    actual_market_amount = self.possession//self.lot_size
-        else:
+                actual_market_amount = self.possession//self.lot_size
+        elif signal.market.direction is None:
+            actual_market_amount = 0
             self.history.Signals.append(None)
             self.history.Budget.append(self._params.Budget)
             self.history.Possession.append(self.possession)
@@ -243,15 +253,15 @@ class AutomatedStrategy:
             self.history.PnL.append(self._params.Budget + self.possession * databits.for_predictors.Close.values[-1])
             self.history.Stoploss_sell.append(None)
             self.history.Takeprofit_sell.append(None)
-        
+            
         signal.market.amount = actual_market_amount
-        
+                
         if not self._params.Backtest:
                 market_ord = self._real_order(signal.market)
                 stoploss_ord = self._real_order(signal.stop_loss)
                 #takeprofit_ord = self._real_order(signal.take_profit)
                 
-                statsignal = Decision(direction=signal.market.direction, amount=signal.market.amount*self.lot_size, price=signal.market.price)
+                statsignal = Decision(direction=int(signal.market.direction), amount=actual_market_amount*self.lot_size, price=signal.market.price)
                 self.history.Budget.append(self._params.Budget)
                 self.history.Possession.append(self.possession)
                 self.history.Signals.append(statsignal)
@@ -325,104 +335,117 @@ class AutomatedStrategy:
               for_predictors: int=3,
               for_risk_managers: int | None=None,
               for_trendviewers: int | None=None,
-              waiting_close: bool=True, **kwargs):
+              waiting_close: bool=True, *args, **kwargs):
         i = d_frequency
         self.for_predictors, self.for_risk_managers, self.for_trendviewers = for_predictors, for_risk_managers, for_trendviewers
         self._necessary_initial_period: int = necessary_initial_period
         self._data_prep: DataPreparationInstructions = data_preparation_intructions
-        cached_data = get_data_tinkoff(TOKEN=self._params.TOKEN, FIGI=self._params.FIGI, period=necessary_initial_period, interval=interval)
+        if d_frequency == 1:
+            cached_data = get_data_tinkoff(TOKEN=self._params.TOKEN, FIGI=self._params.FIGI, period=necessary_initial_period, interval=interval)
+        else:
+            cached_data = get_data_tinkoff(TOKEN=self._params.TOKEN, FIGI=self._params.FIGI, period=necessary_initial_period*3, interval=interval)[::-d_frequency] #number 3 is here just for the amounts of data to be kinda copious
+            cached_data = cached_data[::-1]
         cached_data = data_preparation_intructions(cached_data)
         orders: list[Order] | None = []
-        self.txtlog += f'Trading started. time : {datetime.datetime.now()}'
-        
-        with Client(token=self._params.TOKEN, app_name=self.strategy_id) as client:
-            trading_status = client.market_data.get_trading_status(figi=self._params.FIGI)
-            if not trading_status.market_order_available_flag:
-                self.txtlog += '\n'+f'Market trading is unavailable right now for figi {self._params.FIGI}'
+        with open(f'trading_log_{self.strategy_id}.txt', 'w+') as file:
+            file.write(f'Trading started. time : {datetime.datetime.now()}')
+            file.flush()
             
-            datastream: MarketDataStreamManager = client.create_market_data_stream()
-            datastream.candles.waiting_close(enabled=waiting_close).subscribe([CandleInstrument(figi=self._params.FIGI, interval=interval)])
-            self.txtlog += '\n'+f'Subscribed to datastream. Interval: {interval}'+'\n'
-            try:
-                for new_data in datastream:
-                    if new_data.candle:
-                        self.txtlog += '\n'+f'{self.strategy_id} recieved market data: {new_data.candle.close} (showing only candle close). time : {datetime.datetime.now()}\n'
-                    else:
-                        self.txtlog += '\n'+f'{self.strategy_id} recieved market data: {new_data.candle} (showing only candle). time : {datetime.datetime.now()}\n'
-                    if new_data.candle:
-                        if i == d_frequency:
-                            cached_data, orders = self._on_update(cached_data, new_data, orders)
-                            i = 0
-                            self.txtlog += '\n'+f'#### decision made ####\n\n'
-                        i += 1
-                    if new_data.trading_status and new_data.trading_status.market_order_available_flag:
-                        self.txtlog += '\n'+f'Trading is limited by broker or joever, current status: {new_data.trading_status}\n'
+            with Client(token=self._params.TOKEN, app_name=self.strategy_id) as client:
+                trading_status = client.market_data.get_trading_status(figi=self._params.FIGI)
+                if not trading_status.market_order_available_flag:
+                    file.write('\n'+f'Market trading is unavailable right now for figi {self._params.FIGI}')
+                    file.flush()
+                datastream: MarketDataStreamManager = client.create_market_data_stream()
+                datastream.candles.waiting_close(enabled=waiting_close).subscribe([CandleInstrument(figi=self._params.FIGI, interval=interval)])
+                file.write('\n'+f'Subscribed to datastream. Interval: {interval}'+'\n')
+                file.flush()
+                for e in range(self.max_attempts):
+                    try:
+                        for new_data in datastream:
+                            if new_data.candle:
+                                file.write('\n'+f'{self.strategy_id} recieved market data: {new_data.candle.close} (showing only candle close). time : {datetime.datetime.now()}\n\n')
+                                file.flush()
+                            else:
+                                file.write('.')
+                                file.flush()
+                            if new_data.candle:
+                                if i == d_frequency:
+                                    cached_data, orders = self._on_update(cached_data, new_data, orders)
+                                    i = 0
+                                    with open(f'trading_{self.strategy_id}.json', 'w+') as jsonfile:
+                                        dictforjason = {k : self.history.__dict__[k] for k in list(self.history.__dict__.keys())}
+                                        json.dump(obj=dictforjason, fp=jsonfile, indent=4, separators=(',', ': '), cls=EnhancedJSONEncoder)                                    
+                                    file.write('\n'+f'#### decision made : \n------------\n{self.history.Signals[-1].direction}\n{self.history.Signals[-1].amount}\n{self.history.Signals[-1].type}\n------------\n\n')
+                                    file.flush()                                
+                                i += 1
+                            if new_data.trading_status and new_data.trading_status.market_order_available_flag:
+                                file.write('\n'+f'Trading is limited by broker or joever, current status: {new_data.trading_status}\n')
+                                file.flush()
+                                break
+                            
+                    except RequestError as err:
+                        if err.code in [1, 14] and e < self.max_attempts:
+                            file.write('\n'+f'{err} encountered, handling(number of attempt: {e+1} / {self.max_attempts})... time : {datetime.datetime.now()}')
+                            file.flush()
+                            print(f'at time : {datetime.datetime.now()} \nencountered error : {err}\nhandling(number of attempt: {e+1} / {self.max_attempts})...')
+                            datastream.stop()
+                            pass
+                        elif e >= self.max_attempts:
+                            datastream.stop() 
+                    except KeyboardInterrupt:
+                        file.write('\n'+f'trading stopped by user request. time : {datetime.datetime.now()}')
+                        file.flush()
+                        datastream.stop()
                         break
-                    
-            except RequestError as err:
-                if err.code == 1:
-                    self.txtlog += '\n'+f'{err} encountered, handling... time : {datetime.datetime.now()}'
-                    print(f'at time : {datetime.datetime.now()} \nencountered error : {err}\nhandling...')
-                    datastream.stop()
-                    datastream: MarketDataStreamManager = client.create_market_data_stream()
-                    datastream.candles.waiting_close(enabled=waiting_close).subscribe([CandleInstrument(figi=self._params.FIGI, interval=interval)])
-                    self.txtlog += '\n'+f'error handled. time : {datetime.datetime.now()}'
-                    print(f'error, supposedly, handled. Trading continues')
-                    pass
-                else:
-                    with open(f'trading_log_{self.strategy_id}.txt', 'w+') as file:
-                        file.write(self.txtlog)
-                    with open(f'trading_{self.strategy_id}.json', 'w+') as file:
-                        dict_ = {k : self.history.__dict__[k] for k in list(self.history.__dict__.keys()).remove('Signals')}
-                        json.dump(dict_, file) 
-                    datastream.stop()
-            except KeyboardInterrupt:
-                self.txtlog += '\n'+f'trading stopped by user request. time : {datetime.datetime.now()}'
-                datastream.stop()
-            except InvestError as err:
-                self.txtlog += '\n'+f'Trading stopped due to error: {err}'
-                datastream.stop()
-                with open(f'trading_{self.strategy_id}.json', 'w+') as file:
-                    dict_ = {k : self.history.__dict__[k] for k in list(self.history.__dict__.keys()).remove('Signals')}
-                    json.dump(dict_, file)      
-                    
-            finally:
-                with open(f'trading_log_{self.strategy_id}.txt', 'w+') as file:
-                    file.write(self.txtlog)
-                with open(f'trading_{self.strategy_id}.json', 'w+') as file:
-                    dict_ = {k : self.history.__dict__[k] for k in list(self.history.__dict__.keys()).remove('Signals')}
-                    json.dump(dict_, file) 
-                datastream.stop()
-            
-class BudgetDistributor(ABC):
-    def __init__(self, TOKEN: str, interval: CandleInterval):
-        self.token = TOKEN
-        self.interval = interval
-        
-    def _get_data_make_indicators(self, bots: list[AutomatedStrategy]) -> dict[AutomatedStrategy : Candles]:
-        for_predictions: dict[AutomatedStrategy : Candles]
-        for bot in bots:
-            d = get_data_tinkoff(TOKEN=self.token, FIGI=bot.get_params.FIGI, period=30, interval=self.interval)
-            for_predictions[bot] = createdataset_tinkoff(d)
-                
-        return for_predictions
-    
-    @abstractmethod
-    def __call__(self, bots: list[AutomatedStrategy], budget: float) -> dict[AutomatedStrategy : float]:
-        pass
-            
-            
-class Orchestrator:
-    def __init__(self, bots: list[AutomatedStrategy], budget: float):
-        self.bots = bots
-        self.budget = budget
-        
-    def distrib_budget(self, distributor: BudgetDistributor):
-        distr: dict[AutomatedStrategy : float] = distributor(self.bots, self.budget)
-        for each in self.bots:
-            each.set_budget(self.budget * distr[each])
+                    except InvestError as err:
+                        file.write('\n'+f'Trading stopped due to error: {err}')
+                        file.flush()
+                        datastream.stop()     
+                        break
+                    except:
+                        file.write('\n'+f'Unknown Error encountered, handling(number of attempt: {e+1} / {self.max_attempts})... time : {datetime.datetime.now()}')
+                        file.flush()
+                        print(f'at time : {datetime.datetime.now()} \nencountered an Unknown Error \nhandling(number of attempt: {e+1} / {self.max_attempts})...')
+                        datastream.stop()
+                        #if len(self.history.PnL) > 1:
+                            #with open(f'trading_{self.strategy_id}.json', 'w+') as jsonfile:
+                                #dict_ = {k : self.history.__dict__[k] for k in list(self.history.__dict__.keys())}
+                                #json.dump(obj=dict_, fp=jsonfile, cls=EnhancedJSONEncoder) 
+                    finally:
+                        datastream.stop()
             
 class BotStats:        
+    def __init__(self, PnL: list=[], Buy_prices: list=[], 
+                Market_sell: list=[], Stoploss_sell: list=[], 
+                Possession: list=[], Budget: list=[], 
+                Signals: list[Decision | None]=[], Takeprofit_sell: list=[],
+                commission: float=0.3):
+        self.commission = commission/100
+    
+        self.PnL = PnL
+        self.Buy_prices = Buy_prices[1:]
+        self.Market_sell = Market_sell[1:]
+        self.Stoploss_sell = Stoploss_sell[1:]
+        self.Possession = Possession
+        self.Budget = Budget
+        self.Signals = Signals
+        self.Takeprofit_sell = Takeprofit_sell[1:]
+        
+        self.mean_profit = None
+        self.mean_loss = None
+        self.winning_rate = None
+        
+        self.efficiency = None
+        self.profit = None
+        self.mdd = None
+        self.pdd = None
+        self.sharpe_ratio = None 
+        self.mdd_start = None
+        self.mdd_end = None
+        self.rise_per_1_up = None
+        self.rise_per_1_down = None 
+            
     def calc_deals_stats(self):
         current_deal = []
         profits = []
@@ -430,15 +453,16 @@ class BotStats:
         for i in range(len(self.Buy_prices)):
             buy_price = self.Buy_prices[i]
             market_sell_price = self.Market_sell[i]
-            if not all([buy_price is None, market_sell_price is None]):
-                if buy_price is not None:
-                    current_deal.append(buy_price*(1+self.commision))
-                elif market_sell_price is not None:
-                    ret = market_sell_price*(1-self.commission) - np.mean(current_deal)
-                    if ret > 0:
-                        profits.append(ret*self.Signals[i].amount)
-                    elif ret < 0:
-                        losses.append(ret*self.Signals[i].amount)
+            if self.Signals[i] is not None:
+                if not all([buy_price is None, market_sell_price is None]):
+                    if buy_price is not None:
+                        current_deal.append(buy_price*(1+self.commission))
+                    elif market_sell_price is not None:
+                        ret = market_sell_price*(1-self.commission) - np.mean(current_deal)
+                        if ret > 0:
+                            profits.append(ret*self.Signals[i].amount)
+                        elif ret < 0:
+                            losses.append(ret*self.Signals[i].amount)
             else:
                 continue
                 
@@ -455,7 +479,7 @@ class BotStats:
         
     def calc_extrusion_rate(self, price_data: Candles | Instrument | list | np.ndarray):    
         match price_data:
-            case list():    #just ugliest shit ever
+            case list():
                 d = np.array(price_data)
             case np.ndarray() if price_data.ndim == 1:
                 d = price_data
@@ -512,17 +536,18 @@ class BotStats:
         self.rise_per_1_down = fall / fprofit            #have to check this really hard
         
     def display_stats(self):
-        profit = (self.PnL[-1] - self.Budget)
+        profit = (self.PnL[-1] - self.Budget[0])
         money_used = (self.Budget - min(self.Budget))
-        for each in [profit, self.efficiency, 
-                     self.mdd, self.pdd,
-                     self.mean_loss, self.mean_profit,  
-                     self.rise_per_1_down, self.rise_per_1_up,
-                     self.sharpe_ratio, 
-                     self.winning_rate]:
+        d = {'profit':profit, 'efficiency':self.efficiency, 
+                     'mdd(%)':self.mdd, 'pdd':self.pdd,
+                     'mean loss':self.mean_loss, 'mean profit':self.mean_profit,  
+                     'rise per 1 down':self.rise_per_1_down, 'rise per 1 up':self.rise_per_1_up,
+                     'sharpe ratio':self.sharpe_ratio, 
+                     'winning rate':self.winning_rate}  
+        for each in list(d.keys()):
             if each is not None:
-                print(f'{each=}')
-            else: print(f'{each=} (not calculated)')
+                print(f'{each} : {d[each]}')
+            else: print(f'{each} is not calculated')
         figure, axis = plt.subplots(2, 2, figsize=(15, 15))
         axis[0, 0].plot(self.PnL)
         if all([self.mdd_start, self.mdd_end]):
@@ -536,34 +561,3 @@ class BotStats:
                 i.grid(True)
         plt.show()
             
-    def __init__(self, PnL: list=[], Buy_prices: list=[], 
-                    Market_sell: list=[], Stoploss_sell: list=[], 
-                    Possession: list=[], Budget: list=[], 
-                    Signals: list[Decision | None]=[], Takeprofit_sell: list=[],
-                    amounts: list[int]=[],
-                    commission: float=0.3):
-            self.bots_amounts = amounts
-            self.commission = commission/100
-        
-            self.PnL = PnL
-            self.Buy_prices = Buy_prices[1:]
-            self.Market_sell = Market_sell[1:]
-            self.Stoploss_sell = Stoploss_sell[1:]
-            self.Possession = Possession
-            self.Budget = Budget
-            self.Signals = Signals
-            self.Takeprofit_sell = Takeprofit_sell[1:]
-            
-            self.mean_profit = None
-            self.mean_loss = None
-            self.winning_rate = None
-            
-            self.efficiency = None
-            self.profit = None
-            self.mdd = None
-            self.pdd = None
-            self.sharpe_ratio = None 
-            self.mdd_start = None
-            self.mdd_end = None
-            self.rise_per_1_up = None
-            self.rise_per_1_down = None 

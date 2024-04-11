@@ -28,7 +28,7 @@ class AIPredictorFactory(PredictorFactory):
             self.biascheck = biascheck_data
             self._biascheck_training_difference = True
 
-    def construct_predictor(self, params: PredictorParams) -> Predictor:
+    def construct_predictor(self, params: PredictorParams, batch_size: int=32) -> Predictor:
         model = keras.Sequential()
 
         if any([isinstance(x, layers.RNN) for x in params.structure]):
@@ -68,7 +68,7 @@ class AIPredictorFactory(PredictorFactory):
             
             if not self._biascheck_training_difference: biascheck_sets.append((samples, labels))
         
-        model.fit(np.array(samples_), np.array(labels_), batch_size=32, 
+        model.fit(np.array(samples_), np.array(labels_), batch_size=batch_size, 
                     epochs=params.epochs, 
                     verbose=params.training_verbose,
                     callbacks=params.callbacks,
