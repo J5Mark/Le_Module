@@ -14,6 +14,7 @@ import json
 from tinkoff.invest.exceptions import *
 from tinkoff.invest.services import MarketDataStreamManager
 import datetime
+import traceback
 
 class PriceDataTypeError(Exception):
     def __init__(self, price_data):
@@ -40,7 +41,7 @@ class Provizor:
     
     def see_trend(self, databit: Candles) -> list | None:
         '''a method intended to assure trading is worth it, databit should definetely be a higher timeframe than the operating data'''
-        if self.squad.TrendViewers != None:
+        if self.squad.TrendViewers is not None:
             npdatabit = databit.as_nparray()
             tr_predictions = []
             for trviewer in self.squad.TrendViewers:
@@ -52,7 +53,7 @@ class Provizor:
     def predict(self, databit: Candles) -> list[PredictorResponse] | None:
         npdatabit = databit.as_nparray()
         predictions = []
-        if self.squad.Predictors != None:
+        if self.squad.Predictors is not None:
             for prdctr in self.squad.Predictors:
                 predictions.append(prdctr.predict(npdatabit))
                 
@@ -151,7 +152,9 @@ class AutomatedStrategy:
         self.for_predictors: int | None = None
         self.for_risk_managers: int | None = None
         self.for_trendviewers: int | None = None
-        self.max_attempts = 10
+        self.max_attempts = 1000
+        self.distcount = None
+        self.distribution_frequency = None
         self.history: BotStats = BotStats(PnL=[self._params.Budget],
                                               Buy_prices=[mean_buy_price if mean_buy_price != 0 else None],
                                               Market_sell=[None], 
@@ -159,7 +162,8 @@ class AutomatedStrategy:
                                               Possession=[self.possession],
                                               Budget=[self._params.Budget],
                                               Signals=[None],
-                                              Takeprofit_sell=[None])
+                                              Takeprofit_sell=[None],
+                                              commission=commission)
     
     @property
     @abstractmethod
@@ -243,7 +247,8 @@ class AutomatedStrategy:
                 stoploss_ord = self._real_order(signal.stop_loss)
                 #takeprofit_ord = self._real_order(signal.take_profit)
                 
-                statsignal = Decision(direction=int(signal.market.direction), amount=actual_market_amount*self.lot_size, price=signal.market.price)
+                direction = signal.market.direction
+                statsignal = Decision(direction=direction if direction is None else int(direction), amount=actual_market_amount*self.lot_size, price=signal.market.price)
                 self.history.Budget.append(self._params.Budget)
                 self.history.Possession.append(self.possession)
                 self.history.Signals.append(statsignal)
@@ -253,7 +258,10 @@ class AutomatedStrategy:
                 self.history.Stoploss_sell.append(None)
                 self.history.Takeprofit_sell.append(None)   
                 if transparency:
-                    print(databits, signal)
+                    databits.for_predictors.Time = None
+                    databits.for_risk_managers.Time = None
+                    databits.for_trendviewers.Time = None
+                    print(f'Databits: \n{databits}\n\nSignals: \n{signal}\n\n')
                 return market_ord, stoploss_ord#, takeprofit_ord
                 
                 
@@ -286,7 +294,6 @@ class AutomatedStrategy:
         
     def _on_update(self, cached: Candles, new_data: MarketDataResponse | None, orders: list[Order]):
             #somehow trade
-            
             if new_data is not None:
                 cached.Close.append(new_data.candle.close.units + 10**(-9)*new_data.candle.close.nano)
                 cached.Open.append(new_data.candle.open.units + 10**(-9)*new_data.candle.open.nano)
@@ -307,25 +314,31 @@ class AutomatedStrategy:
                                     transparency=self.transparency)
                 orders += [o for o in order]
                 orders = self.bridge.check_orders(orders)
+                
+                if self.distcount == self.distribution_frequency and self.orchestrator is not None:
+                    self.orchestrator(self.strategy_id)
             
             return cached, orders
             
     def trade(self, data_preparation_intructions: DataPreparationInstructions,
-              interval: CandleInterval=CandleInterval.CANDLE_INTERVAL_2_HOUR, 
+              interval: CandleInterval=CandleInterval.CANDLE_INTERVAL_HOUR, 
               necessary_initial_period: int=50,
-              d_frequency: int=1,
-              for_predictors: int=3,
+              decision_frequency: int=1,
+              distribution_frequency: int=14, #if a decision is made every hour, after every daytrading session budget would be distributed
+              for_predictors: int=2,
               for_risk_managers: int | None=None,
               for_trendviewers: int | None=None,
               waiting_close: bool=True, *args, **kwargs):
-        i = d_frequency
+        self.distribution_frequency = distribution_frequency
+        i = decision_frequency
+        self.distcount = distribution_frequency
         self.for_predictors, self.for_risk_managers, self.for_trendviewers = for_predictors, for_risk_managers, for_trendviewers
         self._necessary_initial_period: int = necessary_initial_period
         self._data_prep: DataPreparationInstructions = data_preparation_intructions
-        if d_frequency == 1:
+        if decision_frequency == 1:
             cached_data = get_data_tinkoff(TOKEN=self._params.TOKEN, FIGI=self._params.FIGI, period=necessary_initial_period, interval=interval)
         else:
-            cached_data = get_data_tinkoff(TOKEN=self._params.TOKEN, FIGI=self._params.FIGI, period=necessary_initial_period*3, interval=interval)[::-d_frequency] #number 3 is here just for the amounts of data to be kinda copious
+            cached_data = get_data_tinkoff(TOKEN=self._params.TOKEN, FIGI=self._params.FIGI, period=necessary_initial_period*3, interval=interval)[::-decision_frequency] #number 3 is here just for the amounts of data to be kinda copious
             cached_data = cached_data[::-1]
         cached_data = data_preparation_intructions(cached_data)
         orders: list[Order] | None = []
@@ -339,11 +352,15 @@ class AutomatedStrategy:
                     file.write('\n'+f'Market trading is unavailable right now for figi {self._params.FIGI}')
                     file.flush()
                 datastream: MarketDataStreamManager = client.create_market_data_stream()
-                datastream.candles.waiting_close(enabled=waiting_close).subscribe([CandleInstrument(figi=self._params.FIGI, interval=interval)])
+                subscription = datastream.candles.waiting_close(enabled=waiting_close).subscribe([CandleInstrument(figi=self._params.FIGI, interval=interval)])
                 file.write('\n'+f'Subscribed to datastream. Interval: {interval}'+'\n')
                 file.flush()
                 for e in range(self.max_attempts):
                     try:
+                        if subscription is None:
+                            datastream: MarketDataStreamManager = client.create_market_data_stream()
+                            subscription = datastream.candles.waiting_close(enabled=waiting_close).subscribe([CandleInstrument(figi=self._params.FIGI, interval=interval)])
+                            file.write(f'\nError handled successfully, trading continues. Time: {datetime.datetime.now()}\n')
                         for new_data in datastream:
                             if new_data.candle:
                                 file.write('\n'+f'{self.strategy_id} recieved market data: {new_data.candle.close} (showing only candle close). time : {datetime.datetime.now()}\n\n')
@@ -352,45 +369,80 @@ class AutomatedStrategy:
                                 file.write('.')
                                 file.flush()
                             if new_data.candle:
-                                if i == d_frequency:
+                                if self.distcount == distribution_frequency and self.orchestrator is not None:
+                                    dist = self.orchestrator(self.strategy_id)
+                                    if dist:
+                                        prev_budget = self._params.Budget
+                                        self.set_budget(dist[self.strategy_id])
+                                        file.write(f'Budget redistributed by bot`s orchestrator(was: {prev_budget}, now: {self._params.Budget}. Time: {datetime.datetime.now()}')
+                                        file.flush()
+                                        self.distcount = 1
+                                if i == decision_frequency:
                                     cached_data, orders = self._on_update(cached_data, new_data, orders)
                                     i = 0
                                     with open(f'trading_{self.strategy_id}.json', 'w+') as jsonfile:
                                         dictforjason = {k : self.history.__dict__[k] for k in list(self.history.__dict__.keys())}
                                         json.dump(obj=dictforjason, fp=jsonfile, indent=4, separators=(',', ': '), cls=EnhancedJSONEncoder)                                    
                                     file.write('\n'+f'#### decision made : \n------------\n{self.history.Signals[-1].direction}\n{self.history.Signals[-1].amount}\n{self.history.Signals[-1].type}\n------------\n\n')
-                                    file.flush()                                
+                                    file.flush()      
                                 i += 1
+                                self.distcount += 1
                             if new_data.trading_status and new_data.trading_status.market_order_available_flag:
                                 file.write('\n'+f'Trading is limited by broker or joever, current status: {new_data.trading_status}\n')
                                 file.flush()
                                 break
                             
                     except RequestError as err:
-                        if err.code in [1, 14] and e < self.max_attempts:
+                        if e < self.max_attempts:
                             file.write('\n'+f'{err} encountered, handling(number of attempt: {e+1} / {self.max_attempts})... time : {datetime.datetime.now()}')
                             file.flush()
                             print(f'at time : {datetime.datetime.now()} \nencountered error : {err}\nhandling(number of attempt: {e+1} / {self.max_attempts})...')
+                            for each in self.history.__dict__:
+                                match self.history.__dict__[each]:
+                                    case list():
+                                        self.history.__dict__[each][-1] = self.history.__dict__[each][-2]
+                                    case _:
+                                        self.history.__dict__[each] = self.history.__dict__[each]
+                                        
+                            self._params.Budget = self.history.Budget[-1]
+                            datastream.unsubscribe(MarketDataRequest(subscribe_candles_request=subscription))
+                            subscription = None
                             datastream.stop()
-                            pass
+                            continue
                         elif e >= self.max_attempts:
+                            file.write('\nError handling attempts exhausted, stopping trading')
+                            datastream.unsubscribe(MarketDataRequest(subscribe_candles_request=subscription))
+                            subscription = None
                             datastream.stop() 
                     except KeyboardInterrupt:
                         file.write('\n'+f'trading stopped by user request. time : {datetime.datetime.now()}')
                         file.flush()
+                        datastream.unsubscribe(MarketDataRequest(subscribe_candles_request=subscription))
+                        subscription = None
                         datastream.stop()
                         break
                     except InvestError as err:
                         file.write('\n'+f'Trading stopped due to error: {err}')
                         file.flush()
-                        datastream.stop()     
+                        datastream.unsubscribe(MarketDataRequest(subscribe_candles_request=subscription)) 
+                        subscription = None
+                        datastream.stop()
                         break
-                    except:
-                        file.write('\n'+f'Unknown Error encountered, handling(number of attempt: {e+1} / {self.max_attempts})... time : {datetime.datetime.now()}')
+                    except Exception as err:
+                        print(traceback.format_exc())
+                        file.write('\n'+f'{err} encountered, handling(number of attempt: {e+1} / {self.max_attempts})... time : {datetime.datetime.now()}')
                         file.flush()
                         print(f'at time : {datetime.datetime.now()} \nencountered an Unknown Error \nhandling(number of attempt: {e+1} / {self.max_attempts})...')
+                        datastream.unsubscribe(MarketDataRequest(subscribe_candles_request=subscription))
+                        subscription = None
                         datastream.stop()
+                        if e <= self.max_attempts:
+                            datastream: MarketDataStreamManager = client.create_market_data_stream()
+                            datastream.candles.waiting_close(enabled=waiting_close).subscribe([CandleInstrument(figi=self._params.FIGI, interval=interval)])
+                            print('error handled successfully')
                     finally:
+                        datastream.unsubscribe(MarketDataRequest(subscribe_candles_request=subscription))
+                        subscription = None
                         datastream.stop()
             
 class BotStats:        
@@ -431,16 +483,17 @@ class BotStats:
         for i in range(len(self.Buy_prices)):
             buy_price = self.Buy_prices[i]
             market_sell_price = self.Market_sell[i]
+            amount = 0 if self.Signals[i] is None else self.Signals[i].amount
             if self.Signals[i] is not None:
                 if not all([buy_price is None, market_sell_price is None]):
                     if buy_price is not None:
-                        current_deal.append(buy_price*(1+self.commission))
+                        current_deal.append(buy_price*(1+self.commission)*amount)
                     elif market_sell_price is not None:
                         ret = market_sell_price*(1-self.commission) - np.mean(current_deal)
                         if ret > 0:
-                            profits.append(ret*self.Signals[i].amount)
+                            profits.append(ret*amount)
                         elif ret < 0:
-                            losses.append(ret*self.Signals[i].amount)
+                            losses.append(ret*amount)
             else:
                 continue
                 

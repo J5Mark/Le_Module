@@ -4,6 +4,7 @@ from Utilities.DataClasses import *
 from tinkoff.invest import Client, OrderDirection, OrderType, CandleInstrument, InfoInstrument, SubscriptionInterval, StopOrderType
 import tinkoff.invest.services as ti_serv
 from tinkoff.invest import InvestError, OrderState
+from tinkoff.invest import StopOrder, StopOrderDirection, StopOrderType
 import uuid
 from StrategiesManagement.sm import *
 from PaperworkManagement.papman import *
@@ -43,7 +44,7 @@ class CandlesBridge(Bridge):
                     else:
                         return 
                 
-                print(f'order {ord_id} has been planted')
+                print(f'\norder {ord_id} has been planted\n')
                 return Order(direction = decision.direction,
                                 amount = decision.amount,
                                 price=orderprice.units+orderprice.nano*10**(-9),

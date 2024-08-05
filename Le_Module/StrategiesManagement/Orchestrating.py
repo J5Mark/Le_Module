@@ -22,17 +22,29 @@ class BudgetDistributor(ABC):
                 
         return prepared_data
     
-    @abstractmethod
     def __call__(self, bots: list[AutomatedStrategy], budget: float) -> dict[AutomatedStrategy : float]:
         pass  #should be defined by the user
             
 class Orchestrator:
-    def __init__(self, bots: list[AutomatedStrategy], budget: float, budget_distributor: BudgetDistributor):
-        self.bots = [b for b in bots if b.orchestrator is not None]
-        self.budget = budget
+    def __init__(self, bots: list[AutomatedStrategy], total_budget: float, budget_distributor: BudgetDistributor):
+        self.bots = bots
+        for bot in bots: bot.orchestrator = self
+        self.budget = total_budget
         self.distributor = budget_distributor
+        self.already_asked = []
         
-    def distrib_budget(self, distributor: BudgetDistributor):
-        distr: dict[AutomatedStrategy : float] = distributor(self.bots, self.budget)
-        for bot, budg in distr:
-            bot.set_budget()
+    def _distrib_budget(self, distributor: BudgetDistributor):
+        self.budget = sum([bot.get_params.Budget for bot in self.bots])
+        raw_distr = distributor(self.bots, self.budget)
+        distr: dict[str : float] = {bot.strategy_id : raw_distr[bot]*self.budget for bot in raw_distr}
+        
+        assert sum(list(distr.values())) == self.budget
+        return distr
+    
+    def __call__(self, id: str) -> dict | None:
+        self.already_asked += [id]
+        if len(set(self.already_asked)) == len(self.bots):
+            self.already_asked = []
+            print('\nbudget redistributed\n')
+            return self._distrib_budget(self.distributor)
+        else: return 

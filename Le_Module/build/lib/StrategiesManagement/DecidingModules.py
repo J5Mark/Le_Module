@@ -129,6 +129,42 @@ class MAGrowingSpeed0(DecidingModule):
         
         return current_ma_speed >= self.k*databit.MAs[0].values[-1]  #####works suspiciously well, gotta test you on some other things    
 
+class MAOnGears(MAGrowingSpeed0):
+    '''MAGrowingSeed0 module that can change frequency of decision based on ATR to price. To correctly set up a default gear
+    set the "default" value in the frequencies_gradation dictionary'''
+    def __init__(self, frequencies_gradation: dict[float | str: int], k: float=1*10**(-7), switch_MAs: bool = False):
+        self.ticking_counter = 0
+        self.gears = frequencies_gradation
+        self.k = k
+        try:
+            self.default_gear = self.gears['default']
+            self.gears = {key: self.gears[key] for key in self.gears if not isinstance(key, str)}
+        except:
+            self.default_gear = self.gears.items()[0][1]
+        self.switch_MAs = switch_MAs
+        
+    def switch_gears(self, databit: Candles) -> tuple[int, int|None]:
+        new_gear = self.default_gear
+        pre_decided_ma_index = None
+        for percentage in self.gears:
+            if databit.ATR.values[-1]/databit.Close.values[-1] > percentage:
+                new_gear = self.gears[percentage]
+        if len(databit.MAs) == len(self.gears) and self.switch_MAs:
+            pre_decided_ma_index = list(self.gears.values()).index(new_gear)
+            
+        return new_gear, pre_decided_ma_index
+        
+    def decide(self, databit: Candles, trend: list[PredictorResponse] | None = None, predictions: list[PredictorResponse] | None = None, risks: list | None = None) -> bool | None:
+        assert databit.ATR is not None
+        assert databit.MAs is not None
+        if self.ticking_counter < self.default_gear:
+            self.ticking_counter += 1
+        gear, pre_decided_ma_index = self.switch_gears(databit)
+        if self.switch_MAs: databit.MAs = [databit.MAs[pre_decided_ma_index]]
+        if self.ticking_counter >= gear:
+            self.ticking_counter = 0
+            return super().decide(databit, trend, predictions, risks)
+
 class EMAGrowingSpeed0(DecidingModule):
     def __init__(self, k: float=1*10**(-7)):
         self.k = k

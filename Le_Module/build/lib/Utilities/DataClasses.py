@@ -13,7 +13,7 @@ class WrongDimsNdArrayError(Exception):
     def __init__(self, correct_dims: tuple, provided_dims: tuple):
         self.msg = f'np.ndarray is of unfit shape.\nShape of provided np.ndarray: {provided_dims}\nCorrect shape: {correct_dims}'
         super().__init__(self.msg)
-        
+
 class AppendingImpossibleError(Exception):
     def __init__(self, ind: Indicator | Candles, val):
         if isinstance(ind, Indicator):
@@ -21,12 +21,12 @@ class AppendingImpossibleError(Exception):
         elif isinstance(ind, Candles):
             self.msg = f'{val} (type: {val.__class__}) cannot be appended to {ind.__class__} object.\nValues provided:\n   {val}\n   {ind}'
         super().__init__(self.msg)
-        
+
 class DifferentIndicatorsNamesError(Exception):
     def __init__(self, ind1: Indicator, ind2: Indicator):
         self.msg = f'Appending {ind2.name} to {ind1.name} makes no sense and is useless'
         super().__init__(self.msg)
-        
+
 class WrongIndicatorSelectedError(Exception):
     '''raised when :indicator: in calcEntropy() is none or just doesn`t exist in the provided candles object'''
     def __init__(self, indicator: str, c: Candles):
@@ -42,16 +42,16 @@ class EnhancedJSONEncoder(json.JSONEncoder):
 @dataclass(init=False, order=True)
 class Money:
     units: int
-    nano: int
-    MOD: int = 10 ** 9
+    nano : int
+    MOD  : int = 10 ** 9
 
-    def __init__(self, value: int | float | Quotation | MoneyValue, nano: int = None):
+    def __init__(self, value: int | float | Quotation | MoneyValue, nano: int | None = None):
         if nano:
             assert isinstance(value, int), 'if nano is present, value must be int'
             assert isinstance(nano, int), 'nano must be int'
             self.units = value
             self.nano = nano
-        else: 
+        else:
             match value:
                 case int() as value:
                     self.units = value
@@ -99,13 +99,16 @@ class Money:
 
 @dataclass
 class Indicator:
-    name: str
-    values: np.ndarray | float
-    span: list[int] | None = None
+    name  : str
+    values: np.ndarray
+    span  : list[int] | None = None
 
     def __getitem__(self, key):
-        return Indicator(name=self.name, values=self.values[key] if isinstance(self.values[key], list) or isinstance(self.values[key], np.ndarray) else np.array([self.values[key]]), span=self.span)
-    
+        if isinstance(self.values, np.ndarray):
+            return Indicator(name=self.name, values=self.values[key] if isinstance(self.values[key], list) or isinstance(self.values[key], np.ndarray) else np.array([self.values[key]]), span=self.span)
+        else:
+            raise TypeError('float object is not subscriptable')
+
     def __eq__(self, __value: Indicator) -> bool:
         if isinstance(__value, Indicator):
             return self.values[-1] == __value.values[-1]
@@ -113,7 +116,7 @@ class Indicator:
             return self.values[-1] == __value[-1]
         else:
             return self.values[-1] == __value
-        
+
     def __gt__(self, __value: Indicator) -> bool:
         if isinstance(__value, Indicator):
             return self.values[-1] > __value.values[-1]
@@ -121,7 +124,7 @@ class Indicator:
             return self.values[-1] > __value[-1]
         else:
             return self.values[-1] > __value
-        
+
     def __lt__(self, __value: Indicator) -> bool:
         if isinstance(__value, Indicator):
             return self.values[-1] < __value.values[-1]
@@ -129,7 +132,7 @@ class Indicator:
             return self.values[-1] < __value[-1]
         else:
             return self.values[-1] < __value
-    
+
     def __ge__(self, __value: Indicator) -> bool:
         if isinstance(__value, Indicator):
             return self.values[-1] >= __value.values[-1]
@@ -137,7 +140,7 @@ class Indicator:
             return self.values[-1] >= __value[-1]
         else:
             return self.values[-1] >= __value
-    
+
     def __le__(self, __value: Indicator) -> bool:
         if isinstance(__value, Indicator):
             return self.values[-1] <= __value.values[-1]
@@ -145,46 +148,46 @@ class Indicator:
             return self.values[-1] <= __value[-1]
         else:
             return self.values[-1] <= __value
-    
+
     def __len__(self) -> int:
         return len(self.values)
-    
+
     def __mul__(self, __value: Indicator | float) -> Indicator:
         if isinstance(__value, Indicator):
             leastlen = min(len(self), len(__value))
             return Indicator(name=f'{self.name}*{__value.name}', values=np.array(self.values[-leastlen:])*np.array(__value.values[-leastlen:]), span=self.span+__value.span)
         else:
             return Indicator(name=f'{self.name}*{__value}', values=np.array(self.values)*__value, span=self.span)
-        
+
     def __add__(self, __value: IndentationError | float):
         if isinstance(__value, Indicator):
             leastlen = min(len(self), len(__value))
             return Indicator(name=f'{self.name}+{__value.name}', values=np.array(self.values[-leastlen:])+np.array(__value.values[-leastlen:]), span=self.span+__value.span)
         elif isinstance(__value, float):
             return Indicator(name=f'{self.name}+{__value}', values=np.array(self.values)+__value, span=self.span)
-        
+
     def __sub__(self, __value: IndentationError | float):
         if isinstance(__value, Indicator):
             leastlen = min(len(self), len(__value))
             return Indicator(name=f'{self.name}-{__value.name}', values=np.array(self.values[-leastlen:])-np.array(__value.values[-leastlen:]), span=self.span+__value.span)
         elif isinstance(__value, float):
             return Indicator(name=f'{self.name}-{__value}', values=np.array(self.values)-__value, span=self.span)
-        
+
     def __truediv__(self, __value: Indicator | float):
         if isinstance(__value, Indicator):
             leastlen = min(len(self), len(__value))
             return Indicator(name=f'{self.name}/{__value.name}', values=np.array(self.values[-leastlen:])/np.array(__value.values[-leastlen:]), span=self.span+__value.span)
         elif isinstance(__value, float):
             return Indicator(name=f'{self.name}/{__value}', values=np.array(self.values)/__value, span=self.span)
-        
+
     def __iadd__(self, __value: Indicator | float):
         self = self + __value
         return self
-    
+
     def __isub__(self, __value: Indicator | float):
         self = self - __value
         return self
-    
+
     def append(self, vals: Indicator | list | np.ndarray | float):
         match vals:
             case Indicator():
@@ -204,26 +207,30 @@ class Indicator:
                 return
             case _:
                 raise AppendingImpossibleError(self, vals)
-                
-            
+
+
 @dataclass
 class Candles:
     '''An array of candles'''
-    Open: Indicator
-    Close: Indicator
-    High: Indicator
-    Low: Indicator 
+    Open  : Indicator
+    Close : Indicator
+    High  : Indicator
+    Low   : Indicator
     Volume: Indicator | None = None
 
-    MAs: list[Indicator] | None = None #first goes the lower span MA
-    EMAs: list[Indicator] | None = None #same thing here
-    MACDhist: Indicator | None = None
-    ATR: Indicator | None = None
+    MAs           : list[Indicator] | None = None #first goes the lower span MA
+    EMAs          : list[Indicator] | None = None #same thing here
+    MACDhist      : Indicator | None = None
+    ATR           : Indicator | None = None
     BollingerBands: list[Indicator] | None = None
-    Volatility: Indicator | None = None
+    Volatility    : Indicator | None = None
+    C2CVolatility : list[Indicator] | None = None #and same here
 
-    FIGI: str | None = None
-    SecurityName: str | None = None
+    Custom: list[Indicator] | None = None
+
+    Symbol        : str | None = None
+    SecurityName  : str | None = None
+    Time          : list | None = None
 
     def __iter__(self):
         yield from dataclasses.asdict(self).values()
@@ -231,49 +238,52 @@ class Candles:
     def __getitem__(self, key):
         _ = Candles(0, 0, 0, 0, 0)
         for name in _.__dict__.keys():
-            if isinstance(self.__getattribute__(name), Indicator):     
+            if isinstance(self.__getattribute__(name), Indicator):
                 _.__setattr__(name, self.__getattribute__(name)[key])
-            elif isinstance(self.__getattribute__(name), list):
+            elif isinstance(self.__getattribute__(name), list) and name != 'Time':
                 _.__setattr__(name, [e[key] for e in self.__getattribute__(name)])
-                    
+
             else:
                 _.__setattr__(name, self.__getattribute__(name))
-        
+
         return _
-    
+
     def as_nparray(self) -> np.ndarray:
         return self.as_dataframe().to_numpy()
-    
+
     def as_dataframe(self) -> pd.DataFrame: #create dataframe with a column for each indicator. Make sure the lengthof the frame is the minimum of all lengths #drop duplicate columns
         names_of_attributes = self.__dict__.keys()
         lens = []
-        for name in names_of_attributes: 
+        for name in names_of_attributes:
             attribute = self.__getattribute__(name)
             if isinstance(attribute, Indicator):
                 lens.append(len(attribute.values[attribute.values != np.array(None)]))
-            elif isinstance(attribute, list):
+            elif isinstance(attribute, list) and name != 'Time':
                 for each in attribute:
                     lens.append(len(each.values[each.values != np.array(None)]))
-                    
+
         m = min(lens) #the minimal length defined here so that i dont have to mention it through min(lens) all the time
         df = pd.DataFrame([]) #lengths of all indicators are figured out and a dataframe is created
-        
+
         list_of_indicators: list[Indicator] = []
         for name in names_of_attributes:
             the_attribute = self.__getattribute__(name)
             if isinstance(the_attribute, list):
+                if name == 'Time':
+                    list_of_indicators.append(Indicator(name='Time', values=the_attribute[-m:], span=[0]))
+                    continue
                 for each in the_attribute:
                     list_of_indicators.append(each[-m:])
             elif isinstance(the_attribute, Indicator):
                 list_of_indicators.append(the_attribute[-m:])  #here all of the attributes are sorted based on their type
-                
+
         for each in list_of_indicators:
             df[f'{each.name} span: {each.span}' if each.span != [0] else f'{each.name}'] = each.values
-            
+
         df = df.loc[:,~df.columns.duplicated()].copy()
-        
+
         return df
-    
+
     def append(self, c: Candles | Indicator):  ###later plss
         match c:
             case Candles():
@@ -282,7 +292,7 @@ class Candles:
                 pass
             case _:
                 raise AppendingImpossibleError(self, c)
-    
+
 @dataclass
 class Decision:
     '''dataclass for trading decisions.
@@ -290,31 +300,32 @@ class Decision:
       :amount: how many lots to buy/sell, -1 for all in access
       :type: type of the order, 0 - market, 1 - stoploss, 2 - takeprofit'''
     direction: bool
-    amount: int
+    amount   : int
     # These ones are really important for real trading, not for backtesting:
-    type: int=0
-    price: float=-1
-    
+    type     : int=0
+    price    : float=-1
+
 @dataclass
 class DecisionsBatch:
-    market: Decision | None=None
-    stop_loss: Decision | None=None
-    take_profit: Decision | None=None    
-    
+    market     : Decision | None=None
+    stop_loss  : Decision | None=None
+    take_profit: Decision | None=None
+
 @dataclass
 class DatabitsBatch:
-    for_predictors: Candles | None=None
-    for_trendviewers: Candles | None=None
+    for_predictors   : Candles | None=None
+    for_trendviewers : Candles | None=None
     for_risk_managers: Candles | None=None
-    
+
 @dataclass
 class ParameterControllerData:
-    model: keras.Sequential | None=None
+    model        : keras.Sequential | None=None
     training_data: tuple | None=None
+
     def __post_init__(self):
         if self.model == None:
             pass
-        
+
 @dataclass
 class Collision:
     """
@@ -323,40 +334,40 @@ class Collision:
         if side == True the line bounced up from the level else: bounced down
         if side is None no collision occured during a given span of time
         :ago: amount of candles passed since the end of collision(current candle included)
-    """    
-    side: bool | None
-    line: str
+    """
+    side : bool | None
+    line : str
     level: str
-    ago: int | None
-    
+    ago  : int | None
+
     def __post_init__(self):
         if None in (self.side, self.ago): self.side = None; self.ago = None
-        
+
 class DataPreparationInstructions(ABC):
     def __init__(self):
         pass
-    
+
     @abstractmethod
     def __call__(self, db: Candles) -> Candles:
         pass
-    
-@dataclass    
+
+@dataclass
 class Order:
-    direction: bool
-    amount: int
-    price: float
-    order_id: str
+    direction : bool
+    amount    : int
+    price     : float
+    order_id  : str
     order_type: int
-    figi: str
-    
+    symbol    : str
+
 @dataclass
 class Asset:
-    figi: str
-    name : str | None=None
+    ticker  : str
+    name    : str | None=None
     lot_size: int | None=None
 
 @dataclass
 class PriceLevel:
-    price_area: tuple[float]
-    occurance: int
+    price_area    : tuple[float]
+    occurance     : int
     last_encounter: int

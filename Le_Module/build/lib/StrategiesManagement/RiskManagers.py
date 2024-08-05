@@ -59,7 +59,7 @@ class AvgPriceATRRiskManager(RiskManager):
         self.border_atr = border_atr
         self.highest = 0
         
-    def predict(self, databit: Candles, avg_buy_price: float | None=None, last_buy_price: float | None=None, first_buy_price: float | None=None, predictions: list[PredictorResponse] | None=None) -> RMResponse:
+    def predict(self, databit: Candles, budget: float | None = None, avg_buy_price: float | None=None, last_buy_price: float | None=None, first_buy_price: float | None=None, predictions: list[PredictorResponse] | None=None) -> RMResponse:
         try:
             if self.highest < avg_buy_price: 
                 self.highest = avg_buy_price
