@@ -181,11 +181,13 @@ def get_candles_tinkoff(TOKEN : str, FIGI : str, period : int=12, interval : Can
 
     return c
 
-def get_candles_ccxt(pair: str, period: int, interval: str, exchange: str = 'binance') -> Candles:
+def get_candles_ccxt(pair: str, period: int, interval: str, exchange: str = 'binance', timeout: int=10_000) -> Candles:
+    #some arguments may make less sense because i whanted get_candles_ccxt and get_candles_tinkoff to have the same arguments. The tinkoff function just appeared earlier
     '''
         :pair: name of currency pair, for example BTC/USD
-        :period: time in minutes you would like to fetch data over (in minutes bc i thought using milisecs like in original ccxt library would be a pain in the ass)
-        :interval: aka timeframe, should be in format like 1hour
+        :period: how many candles to fetch
+        :timeout: timeout in milisecs
+        :interval: aka timeframe, should be in format like 1h
         :exchange: name of exchange yoou want to fetch data from. To see which ones are available use ccxt.exchanges
         Also ccxt tells time in milisecs since 1st january of 1970, so keep in mind.
     '''
@@ -194,14 +196,14 @@ def get_candles_ccxt(pair: str, period: int, interval: str, exchange: str = 'bin
     xch_id = exchange
     xch_class = getattr(ccxt, xch_id)
     xch = xch_class({
-        'timeout' : period*60_000,
+        'timeout' : timeout,
         'interval': interval
     })
 
     assert xch.has['fetchOHLCV'], f'echange {exchange} doesn appear to have a fetchOHLCV method, which is essential'
 
     open, close, high, low, volume, time = [], [], [], [], [], []
-    for candle in xch.fetchOHLCV(pair):
+    for candle in xch.fetchOHLCV(pair, limit=period):
         time.append(candle[0])
         open.append(candle[1])
         high.append(candle[2])
